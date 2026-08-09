@@ -9,7 +9,8 @@ const buckets = new Map();
 
 const baseConfig = Object.freeze({
   appName: 'الفهد TV', packageName: 'com.alfahdtv.app', homeUrl: HOME_URL,
-  minimumVersionCode: 1, latestVersionCode: 1, latestVersionName: '1.0.0',
+  minimumVersionCode: 1, latestVersionCode: 7, latestVersionName: '1.5.0',
+  apkUrl: 'https://github.com/merom2854-sketch/elfahd/releases/download/v1.5.0/Al-Fahd-TV-1.5.0-debug.apk',
   maintenance: false, maintenanceMessage: '',
   features: { downloads: true, fullscreenVideo: true, secureScreens: true }
 });
