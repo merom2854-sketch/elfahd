@@ -25,17 +25,20 @@ function cors(req){const origin=String(req.headers.origin||'');return {'Access-C
 function ipOf(req){return String(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').split(',')[0].trim();}
 function limited(req){const ip=ipOf(req),now=Date.now(),b=buckets.get(ip)||{start:now,count:0};if(now-b.start>60_000){b.start=now;b.count=0;}b.count++;buckets.set(ip,b);return b.count>90;}
 function authorized(req){if(!ADMIN_TOKEN)return false;const supplied=String(req.headers.authorization||'').replace(/^Bearer\s+/i,'');const a=Buffer.from(supplied),b=Buffer.from(ADMIN_TOKEN);return a.length===b.length&&crypto.timingSafeEqual(a,b);}
+async function fallbackFootball(date){const upstream=await fetch(`https://www.thesportsdb.com/api/v1/json/123/eventsday.php?d=${encodeURIComponent(date)}&s=Soccer`);if(!upstream.ok)throw new Error('Football fallback unavailable');const payload=await upstream.json();return (payload.events||[]).map(item=>({id:item.idEvent,date:item.strTimestamp||`${item.dateEvent}T${item.strTime||'00:00:00'}Z`,status:item.strStatus||'Not Started',elapsed:null,league:{name:item.strLeague||'',country:item.strCountry||'',logo:item.strLeagueBadge||''},home:{name:item.strHomeTeam||'',logo:item.strHomeTeamBadge||'',score:item.intHomeScore==null?null:Number(item.intHomeScore)},away:{name:item.strAwayTeam||'',logo:item.strAwayTeamBadge||'',score:item.intAwayScore==null?null:Number(item.intAwayScore)}}));}
+async function footballMatches(date){if(FOOTBALL_API_KEY){try{const upstream=await fetch(`https://v3.football.api-sports.io/fixtures?date=${encodeURIComponent(date)}`,{headers:{'x-apisports-key':FOOTBALL_API_KEY}});const payload=await upstream.json();if(upstream.ok&&!(payload.errors&&Object.keys(payload.errors).length))return (payload.response||[]).map(item=>({id:item.fixture?.id,date:item.fixture?.date,status:item.fixture?.status?.long||'',elapsed:item.fixture?.status?.elapsed,league:{name:item.league?.name||'',country:item.league?.country||'',logo:item.league?.logo||''},home:{name:item.teams?.home?.name||'',logo:item.teams?.home?.logo||'',score:item.goals?.home},away:{name:item.teams?.away?.name||'',logo:item.teams?.away?.logo||'',score:item.goals?.away}}));}catch{}}
+  return fallbackFootball(date);
+}
 
 const server=http.createServer((req,res)=>{
   if(limited(req))return send(res,429,{status:'error',message:'Too many requests'},{'Retry-After':'60'});
   if(req.method==='GET'&&req.url==='/health')return send(res,200,{status:'ok',service:'al-fahd-tv-backend'},cors(req));
   if(req.method==='GET'&&req.url==='/v1/config')return send(res,200,{status:'success',data:baseConfig},cors(req));
   if(req.method==='GET'&&req.url.startsWith('/v1/football/matches')){
-    if(!FOOTBALL_API_KEY)return send(res,503,{status:'error',message:'Football service is not configured'});
     const requestUrl=new URL(req.url,'http://localhost');const date=requestUrl.searchParams.get('date')||new Date().toISOString().slice(0,10);
     if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return send(res,400,{status:'error',message:'Invalid date'});
-    return fetch(`https://v3.football.api-sports.io/fixtures?date=${encodeURIComponent(date)}`,{headers:{'x-apisports-key':FOOTBALL_API_KEY}})
-      .then(async upstream=>{const payload=await upstream.json();if(!upstream.ok||payload.errors&&Object.keys(payload.errors).length)throw new Error('Football provider unavailable');const matches=(payload.response||[]).map(item=>({id:item.fixture?.id,date:item.fixture?.date,status:item.fixture?.status?.long||'',elapsed:item.fixture?.status?.elapsed,league:{name:item.league?.name||'',country:item.league?.country||'',logo:item.league?.logo||''},home:{name:item.teams?.home?.name||'',logo:item.teams?.home?.logo||'',score:item.goals?.home},away:{name:item.teams?.away?.name||'',logo:item.teams?.away?.logo||'',score:item.goals?.away}}));send(res,200,{status:'success',date,matches},cors(req));})
+    return footballMatches(date)
+      .then(matches=>send(res,200,{status:'success',date,matches},cors(req)))
       .catch(()=>send(res,502,{status:'error',message:'Football provider unavailable'},cors(req)));
   }
   if(req.url==='/v1/admin/config')return send(res,authorized(req)?501:401,{status:'error',message:authorized(req)?'Persistent config storage is not enabled':'Unauthorized'});
