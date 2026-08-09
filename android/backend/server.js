@@ -15,7 +15,7 @@ const baseConfig = Object.freeze({
 });
 
 function headers(extra={}) { return {
-  'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',
+  'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Access-Control-Allow-Origin':'https://el-nemr-tv.vercel.app','Vary':'Origin','X-Content-Type-Options':'nosniff',
   'X-Frame-Options':'DENY','Referrer-Policy':'no-referrer','Permissions-Policy':'camera=(), microphone=(), geolocation=()',
   'Content-Security-Policy':"default-src 'none'; frame-ancestors 'none'",...extra
 }; }
