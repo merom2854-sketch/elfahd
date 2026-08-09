@@ -4,7 +4,7 @@ import android.Manifest;import android.app.Activity;import android.app.AlertDial
 
 public final class MainActivity extends Activity {
     private WebView webView;private ProgressBar progress;private LinearLayout errorPanel,topBar;private FrameLayout root,splash;private View customView;private WebChromeClient.CustomViewCallback customCallback;private long lastBack;private SharedPreferences prefs,data;private String pendingDownload;private boolean touchLocked;
-    @Override protected void onCreate(Bundle state){super.onCreate(state);prefs=getSharedPreferences("settings",0);data=getSharedPreferences("data",0);styleWindow();buildUi();configureWebView();NotificationScheduler.schedule(this);requestNotificationPermission();if(state==null)webView.loadUrl(data.getString("last_url",BuildConfig.HOME_URL));else webView.restoreState(state);}
+    @Override protected void onCreate(Bundle state){super.onCreate(state);prefs=getSharedPreferences("settings",0);data=getSharedPreferences("data",0);styleWindow();buildUi();configureWebView();NotificationScheduler.schedule(this);requestNotificationPermission();if(state==null)webView.loadUrl(data.getString("last_url",BuildConfig.HOME_URL));else webView.restoreState(state);root.postDelayed(()->UpdateChecker.check(this,false),1800);}
     private void styleWindow(){getWindow().setStatusBarColor(AppUi.BG);getWindow().setNavigationBarColor(AppUi.BG);if(!BuildConfig.DEBUG&&prefs!=null&&prefs.getBoolean("secure",true))getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);}
     private void buildUi(){
         root=new FrameLayout(this);root.setBackgroundColor(AppUi.BG);LinearLayout shell=new LinearLayout(this);shell.setOrientation(LinearLayout.VERTICAL);root.addView(shell,new FrameLayout.LayoutParams(-1,-1));
