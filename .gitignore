@@ -1,0 +1,16 @@
+# Local Android and Gradle state
+android/.gradle/
+android/.gradle-*/
+android/.tools/
+android/**/build/
+android/local.properties
+
+# Secrets and local environment configuration
+**/.env
+**/.env.*
+!**/.env.example
+
+# IDE and operating-system files
+.idea/
+*.iml
+.DS_Store

@@ -1,0 +1,5 @@
+-optimizationpasses 5
+-dontusemixedcaseclassnames
+-repackageclasses 'com.alfahdtv.secure'
+-allowaccessmodification
+-keepattributes *Annotation*

@@ -1,0 +1,34 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace 'com.alfahdtv.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.alfahdtv.app'
+        minSdk 24
+        targetSdk 34
+        versionCode 4
+        versionName '1.3.0'
+        buildConfigField 'String', 'HOME_URL', '"https://el-nemr-tv.vercel.app/#/home"'
+        buildConfigField 'String', 'ALLOWED_HOST', '"el-nemr-tv.vercel.app"'
+    }
+
+    buildTypes {
+        debug { applicationIdSuffix '.debug'; versionNameSuffix '-debug' }
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+}
+
+dependencies {
+    implementation fileTree(dir: 'libs', include: ['*.aar'])
+}
