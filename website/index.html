@@ -79,6 +79,7 @@
   history.replaceState({screen:'home'},'',location.hash||'#/home');
   window.addEventListener('popstate',showHome);
   new MutationObserver(()=>{const actions=document.querySelector('.watch-actions');if(actions&&!actions.querySelector('.fullscreen-action')){const button=document.createElement('button');button.className='fullscreen-action';button.textContent='⛶ تكبير';button.onclick=()=>{const video=document.querySelector('#watchBody video');if(video?.requestFullscreen)video.requestFullscreen();};actions.append(button);}}).observe(document.querySelector('#watchBody'),{childList:true,subtree:true});
+  document.querySelector('#watchBody').addEventListener('click',event=>{const download=event.target.closest('.watch-actions a');if(!download)return;event.preventDefault();if(!currentMedia){showToast('تعذر تجهيز رابط التحميل');return}if(window.AndroidPlayer?.download){window.AndroidPlayer.download(currentMedia);showToast('بدأ تحميل ملف الفيديو');}else window.open(currentMedia,'_blank','noopener');});
 </script>
 </body>
 </html>
