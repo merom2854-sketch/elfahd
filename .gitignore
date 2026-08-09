@@ -14,3 +14,4 @@ android/local.properties
 .idea/
 *.iml
 .DS_Store
+download/assets/landing-preview*.png
