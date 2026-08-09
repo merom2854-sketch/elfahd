@@ -6,6 +6,7 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
 const HOME_URL = process.env.HOME_URL || 'https://el-nemr-tv.vercel.app/#/home';
 const FOOTBALL_API_KEY = process.env.FOOTBALL_API_KEY || '';
 const buckets = new Map();
+let downloadStatsCache = { expires: 0, data: null };
 
 const baseConfig = Object.freeze({
   appName: 'الفهد TV', packageName: 'com.alfahdtv.app', homeUrl: HOME_URL,
@@ -30,11 +31,13 @@ async function fallbackFootball(date){const upstream=await fetch(`https://www.th
 async function footballMatches(date){if(FOOTBALL_API_KEY){try{const upstream=await fetch(`https://v3.football.api-sports.io/fixtures?date=${encodeURIComponent(date)}`,{headers:{'x-apisports-key':FOOTBALL_API_KEY}});const payload=await upstream.json();if(upstream.ok&&!(payload.errors&&Object.keys(payload.errors).length))return (payload.response||[]).map(item=>({id:item.fixture?.id,date:item.fixture?.date,status:item.fixture?.status?.long||'',elapsed:item.fixture?.status?.elapsed,league:{name:item.league?.name||'',country:item.league?.country||'',logo:item.league?.logo||''},home:{name:item.teams?.home?.name||'',logo:item.teams?.home?.logo||'',score:item.goals?.home},away:{name:item.teams?.away?.name||'',logo:item.teams?.away?.logo||'',score:item.goals?.away}}));}catch{}}
   return fallbackFootball(date);
 }
+async function downloadStats(){const now=Date.now();if(downloadStatsCache.data&&downloadStatsCache.expires>now)return downloadStatsCache.data;const upstream=await fetch('https://api.github.com/repos/merom2854-sketch/elfahd/releases?per_page=100',{headers:{Accept:'application/vnd.github+json','User-Agent':'Al-Fahd-TV'}});if(!upstream.ok)throw new Error('GitHub stats unavailable');const releases=await upstream.json();const apkAssets=releases.flatMap(release=>(release.assets||[]).filter(asset=>/\.apk$/i.test(asset.name)).map(asset=>({tag:release.tag_name,name:asset.name,downloads:Number(asset.download_count)||0})));const data={totalDownloads:apkAssets.reduce((sum,asset)=>sum+asset.downloads,0),latestDownloads:apkAssets[0]?.downloads||0,releaseCount:releases.length,latestVersion:releases[0]?.tag_name||'',updatedAt:new Date().toISOString()};downloadStatsCache={data,expires:now+10*60_000};return data;}
 
 const server=http.createServer((req,res)=>{
   if(limited(req))return send(res,429,{status:'error',message:'Too many requests'},{'Retry-After':'60'});
   if(req.method==='GET'&&req.url==='/health')return send(res,200,{status:'ok',service:'al-fahd-tv-backend'},cors(req));
   if(req.method==='GET'&&req.url==='/v1/config')return send(res,200,{status:'success',data:baseConfig},cors(req));
+  if(req.method==='GET'&&req.url==='/v1/stats/downloads')return downloadStats().then(data=>send(res,200,{status:'success',data},{...cors(req),'Cache-Control':'public, max-age=300'})).catch(()=>send(res,502,{status:'error',message:'Download statistics unavailable'},cors(req)));
   if(req.method==='GET'&&req.url.startsWith('/v1/football/matches')){
     const requestUrl=new URL(req.url,'http://localhost');const date=requestUrl.searchParams.get('date')||new Date().toISOString().slice(0,10);
     if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return send(res,400,{status:'error',message:'Invalid date'});
