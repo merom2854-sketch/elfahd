@@ -68,6 +68,8 @@
   async function openFootball(){const modal=document.querySelector('#watchModal'),body=document.querySelector('#watchBody');modal.classList.add('open');document.body.style.overflow='hidden';body.innerHTML='<h2>⚽ مباريات اليوم</h2><div class="watch-meta">جاري تحميل المباريات العربية والعالمية…</div><div class="watch-loading">جاري التحميل</div>';try{const response=await fetch(FOOTBALL_API,{cache:'no-store'});const data=await response.json();if(!response.ok||data.status!=='success')throw new Error();const matches=Array.isArray(data.matches)?data.matches:[];const arab=matches.filter(m=>arabCountries.has(m.league.country));const world=matches.filter(m=>!arabCountries.has(m.league.country));body.innerHTML=`<h2>⚽ مباريات اليوم</h2><div class="watch-meta">${escapeHtml(data.date)} • تحديث مباشر للجدول والنتائج</div><h3>المباريات العربية</h3>${arab.length?arab.map(footballMatch).join(''):'<p class="watch-description">لا توجد مباريات عربية مسجلة اليوم.</p>'}<h3 style="margin-top:24px">المباريات العالمية</h3>${world.slice(0,80).map(footballMatch).join('')||'<p class="watch-description">لا توجد مباريات مسجلة اليوم.</p>'}`;}catch{body.innerHTML='<div class="watch-loading">تعذر تحميل المباريات. حاول مرة أخرى لاحقًا.</div>'}}
   const footballNav=document.querySelectorAll('.nav button')[3];footballNav.innerHTML='<i>⚽</i>مباريات';footballNav.onclick=openFootball;
   const drawerItems=document.querySelectorAll('.mi');if(drawerItems[5])drawerItems[5].onclick=()=>{toggleMenu();openFootball()};
+  document.querySelector('.actions .icon[onclick]')?.remove();
+  document.querySelector('#drawer')?.remove();
 </script>
 </body>
 </html>
