@@ -8,17 +8,29 @@ android {
         applicationId 'com.alfahdtv.app'
         minSdk 24
         targetSdk 34
-        versionCode 9
-        versionName '1.5.2'
+        versionCode 10
+        versionName '2.0.0'
         buildConfigField 'String', 'HOME_URL', '"https://elfahd-tv.vercel.app/#/home"'
         buildConfigField 'String', 'ALLOWED_HOST', '"elfahd-tv.vercel.app"'
+    }
+
+    signingConfigs {
+        migrationRelease {
+            storeFile file(System.getProperty('user.home') + '/.android/debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
     }
 
     buildTypes {
         debug { applicationIdSuffix '.debug'; versionNameSuffix '-debug' }
         release {
-            minifyEnabled true
-            shrinkResources true
+            // Keep the installed package and certificate so v1.x users receive this as an update.
+            applicationIdSuffix '.debug'
+            signingConfig signingConfigs.migrationRelease
+            minifyEnabled false
+            shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
