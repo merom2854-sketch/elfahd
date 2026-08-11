@@ -43,6 +43,7 @@ public final class PlayerActivity extends Activity {
         player.setMediaItem(MediaItem.fromUri(mediaUrl));
         player.prepare();
         player.play();
+        updatePipParams();
     }
 
     private void updatePipParams() {
@@ -53,10 +54,13 @@ public final class PlayerActivity extends Activity {
     }
 
     @Override public void onUserLeaveHint() {
-        if(Build.VERSION.SDK_INT>=26&&Build.VERSION.SDK_INT<31&&pipEnabled&&player!=null&&player.isPlaying()){
-            try{enterPictureInPictureMode(new PictureInPictureParams.Builder().setAspectRatio(new Rational(16,9)).build());}catch(Exception ignored){}
-        }
+        enterPip();
         super.onUserLeaveHint();
+    }
+
+    @Override public void onBackPressed() {
+        if(enterPip())return;
+        super.onBackPressed();
     }
 
     @Override public void onPictureInPictureModeChanged(boolean active, Configuration config) {
@@ -79,5 +83,10 @@ public final class PlayerActivity extends Activity {
         player.release();
         player=null;
         playerView.setPlayer(null);
+    }
+
+    private boolean enterPip() {
+        if(Build.VERSION.SDK_INT<26||!pipEnabled||player==null||!player.isPlaying()||isInPictureInPictureMode())return false;
+        try{return enterPictureInPictureMode(new PictureInPictureParams.Builder().setAspectRatio(new Rational(16,9)).build());}catch(Exception ignored){return false;}
     }
 }
