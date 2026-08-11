@@ -3,17 +3,17 @@ import crypto from 'node:crypto';
 
 const PORT = Number(process.env.PORT || 3000);
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
-const HOME_URL = process.env.HOME_URL || 'https://el-nemr-tv.vercel.app/#/home';
+const HOME_URL = process.env.HOME_URL || 'https://elfahd-tv.vercel.app/#/home';
 const FOOTBALL_API_KEY = process.env.FOOTBALL_API_KEY || '';
 const buckets = new Map();
 let downloadStatsCache = { expires: 0, data: null };
 
 const baseConfig = Object.freeze({
-  appName: 'الفهد TV', packageName: 'com.alfahdtv.app', homeUrl: HOME_URL,
+  appName: 'الفهد TV', packageName: 'com.alfahdtv.app.debug', homeUrl: HOME_URL,
   minimumVersionCode: 1, latestVersionCode: 10, latestVersionName: '2.0.0',
   apkUrl: 'https://github.com/merom2854-sketch/elfahd/releases/download/v2.0.0/Al-Fahd-TV-2.0.0.apk',
   maintenance: false, maintenanceMessage: '',
-  features: { downloads: true, fullscreenVideo: true, secureScreens: true }
+  features: { downloads: true, fullscreenVideo: true, pictureInPicture: true, anime: true, channels: true, secureScreens: true }
 });
 
 const ALLOWED_ORIGINS = new Set(['https://elfahd-tv.vercel.app','https://el-nemr-tv.vercel.app']);
