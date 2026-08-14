@@ -110,7 +110,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-data class ResumeInfo(val title: String, val url: String, val position: Long, val duration: Long)
+data class ResumeInfo(val title: String, val url: String, val image: String, val position: Long, val duration: Long)
 
 class NativeHomeActivity : ComponentActivity() {
     private var pendingDownload: ContentDetail? = null
@@ -148,11 +148,11 @@ class NativeHomeActivity : ComponentActivity() {
 
     override fun onResume() { super.onResume(); resumeVersion++ }
 
-    private fun play(url: String, title: String) {
+    private fun play(url: String, title: String, image: String? = null) {
         val uri = runCatching { Uri.parse(url) }.getOrNull()
         val trustedHttp = uri?.scheme.equals("http", true) && uri?.host?.lowercase()?.endsWith(".downet.net") == true
         if (!url.startsWith("https://") && !trustedHttp) { toast("مصدر المشاهدة غير متاح الآن"); return }
-        startActivity(Intent(this, PlayerActivity::class.java).putExtra("media_url", url).putExtra("media_title", title))
+        startActivity(Intent(this, PlayerActivity::class.java).putExtra("media_url", url).putExtra("media_title", title).putExtra("media_image", image ?: ""))
     }
 
     private fun download(detail: ContentDetail) {
@@ -186,7 +186,7 @@ private enum class FahdDestination(val label: String) { HOME("الرئيسية")
 @Composable
 private fun FahdApp(
     resumeVersion: Int,
-    onPlay: (String, String) -> Unit,
+    onPlay: (String, String, String?) -> Unit,
     onDownload: (ContentDetail) -> Unit,
     onOpenDownloads: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -198,9 +198,10 @@ private fun FahdApp(
         context.getSharedPreferences("player_resume", 0).let { prefs ->
             val url = prefs.getString("url", "").orEmpty()
             val title = prefs.getString("title", "").orEmpty()
+            val image = prefs.getString("image", "").orEmpty()
             val position = prefs.getLong("position", 0)
             val duration = prefs.getLong("duration", 0)
-            if (url.isBlank() || title.isBlank() || position <= 0 || duration <= 0 || position >= duration - 15_000L) null else ResumeInfo(title, url, position, duration)
+            if (url.isBlank() || title.isBlank() || position <= 0 || duration <= 0 || position >= duration - 15_000L) null else ResumeInfo(title, url, image, position, duration)
         }
     }
     var favoriteEntries by remember { mutableStateOf(library.getStringSet("favorites", emptySet()).orEmpty().toSet()) }
@@ -274,7 +275,7 @@ private fun FahdApp(
                     val title = when (allKind) { CatalogKind.MOVIE -> "وصل حديثًا"; CatalogKind.SERIES -> "مسلسلات مختارة"; CatalogKind.ANIME -> "الأنمي والكرتون"; null -> "عرض الكل" }
                     CatalogGrid(title, content, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding())
                 }
-                destination == FahdDestination.HOME -> HomeScreen(movies, series, anime, resume, loading, error, onRetry = { reloadKey++ }, onSelect = { selected = it }, onResume = { resume?.let { onPlay(it.url, it.title) } }, onViewAll = { allKind = it }, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onTelegram = { onOpenExternal("https://t.me/elfahd_tv") }, contentBottomPadding = padding.calculateBottomPadding())
+                destination == FahdDestination.HOME -> HomeScreen(movies, series, anime, resume, loading, error, onRetry = { reloadKey++ }, onSelect = { selected = it }, onResume = { resume?.let { onPlay(it.url, it.title, it.image) } }, onViewAll = { allKind = it }, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onTelegram = { onOpenExternal("https://t.me/elfahd_tv") }, contentBottomPadding = padding.calculateBottomPadding())
                 destination == FahdDestination.MOVIES -> CatalogGrid("الأفلام", movies, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding())
                 destination == FahdDestination.SERIES -> CatalogGrid("المسلسلات", series, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding())
                 destination == FahdDestination.CHANNELS -> ChannelsScreen(onBack = { destination = FahdDestination.HOME }, onOpenExternal = onOpenExternal, bottomPadding = padding.calculateBottomPadding())
@@ -371,19 +372,19 @@ private fun GlassIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, lab
 @Composable
 private fun ResumeCard(resume: ResumeInfo, onResume: () -> Unit) {
     val progress = (resume.position.toFloat() / resume.duration.toFloat()).coerceIn(0f, 1f)
-    Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth().clip(RoundedCornerShape(17.dp)).background(FahdColors.Surface).padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("كمل مشاهدة", color = FahdColors.Red, fontWeight = FontWeight.Black, fontSize = 14.sp)
-                Spacer(Modifier.height(4.dp))
-                Text(resume.title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            Button(onClick = onResume, colors = ButtonDefaults.buttonColors(containerColor = FahdColors.Red), shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(horizontal = 15.dp, vertical = 9.dp)) { Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(5.dp)); Text("متابعة") }
+    Box(Modifier.padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth().height(190.dp).clip(RoundedCornerShape(20.dp)).background(FahdColors.Surface)) {
+        if (resume.image.isNotBlank()) AsyncImage(resume.image, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.Black.copy(alpha = .92f), Color.Black.copy(alpha = .5f), Color.Transparent))))
+        Column(Modifier.align(Alignment.CenterStart).padding(start = 18.dp, end = 150.dp)) {
+            Text("كمل مشاهدة", color = FahdColors.Gold, fontWeight = FontWeight.Black, fontSize = 14.sp)
+            Spacer(Modifier.height(6.dp))
+            Text(resume.title, fontWeight = FontWeight.Black, fontSize = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(12.dp))
+            Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(5.dp)).background(Color.White.copy(alpha = .25f))) { Box(Modifier.fillMaxWidth(progress).height(5.dp).background(FahdColors.Red)) }
+            Spacer(Modifier.height(5.dp))
+            Text("${(progress * 100).toInt()}% مكتمل", color = Color.White.copy(alpha = .75f), fontSize = 12.sp)
         }
-        Spacer(Modifier.height(12.dp))
-        Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(5.dp)).background(FahdColors.Divider)) { Box(Modifier.fillMaxWidth(progress).height(5.dp).background(FahdColors.Red)) }
-        Spacer(Modifier.height(5.dp))
-        Text("${(progress * 100).toInt()}% مكتمل", color = FahdColors.Muted, fontSize = 12.sp)
+        IconButton(onClick = onResume, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 20.dp).size(62.dp).clip(CircleShape).background(FahdColors.Red)) { Icon(Icons.Rounded.PlayArrow, "متابعة", tint = Color.White, modifier = Modifier.size(34.dp)) }
     }
 }
 
@@ -485,7 +486,7 @@ private fun DetailScreen(
     onRecordHistory: () -> Unit,
     onRelated: (CatalogItem) -> Unit,
     onBack: () -> Unit,
-    onPlay: (String, String) -> Unit,
+    onPlay: (String, String, String?) -> Unit,
     onDownload: (ContentDetail) -> Unit,
 ) {
     var detail by remember(item.href) { mutableStateOf<ContentDetail?>(null) }
@@ -513,7 +514,7 @@ private fun DetailScreen(
         detail?.let { loaded ->
             item {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(onClick = { onRecordHistory(); onPlay(loaded.mediaUrl, loaded.title) }, enabled = loaded.mediaUrl.isNotBlank(), modifier = Modifier.weight(1.25f).height(52.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = FahdColors.Red)) { Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("شاهد الآن", fontWeight = FontWeight.Black) }
+            Button(onClick = { onRecordHistory(); onPlay(loaded.mediaUrl, loaded.title, item.image) }, enabled = loaded.mediaUrl.isNotBlank(), modifier = Modifier.weight(1.25f).height(52.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = FahdColors.Red)) { Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("شاهد الآن", fontWeight = FontWeight.Black) }
                     OutlinedButton(onClick = { onDownload(loaded) }, enabled = loaded.mediaUrl.isNotBlank(), modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.Download, null); Spacer(Modifier.width(6.dp)); Text("تحميل") }
                 }
             }
@@ -523,7 +524,7 @@ private fun DetailScreen(
                 Column(Modifier.padding(top = 14.dp)) {
                     Text("الحلقات", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        items(loaded.episodes) { episode -> OutlinedButton(onClick = { scope.launch { try { val episodeDetail = repository.episode(episode.link, "الحلقة ${episode.number}"); if (episodeDetail.mediaUrl.isNotBlank()) { onRecordHistory(); onPlay(episodeDetail.mediaUrl, "${loaded.title} • الحلقة ${episode.number}") } else Toast.makeText(context, "مصدر الحلقة غير متاح الآن", Toast.LENGTH_SHORT).show() } catch (_: Exception) { Toast.makeText(context, "تعذر فتح الحلقة، حاول مرة أخرى", Toast.LENGTH_SHORT).show() } } }, shape = RoundedCornerShape(12.dp)) { Text("الحلقة ${episode.number}") } }
+                        items(loaded.episodes) { episode -> OutlinedButton(onClick = { scope.launch { try { val episodeDetail = repository.episode(episode.link, "الحلقة ${episode.number}"); if (episodeDetail.mediaUrl.isNotBlank()) { onRecordHistory(); onPlay(episodeDetail.mediaUrl, "${loaded.title} • الحلقة ${episode.number}", item.image) } else Toast.makeText(context, "مصدر الحلقة غير متاح الآن", Toast.LENGTH_SHORT).show() } catch (_: Exception) { Toast.makeText(context, "تعذر فتح الحلقة، حاول مرة أخرى", Toast.LENGTH_SHORT).show() } } }, shape = RoundedCornerShape(12.dp)) { Text("الحلقة ${episode.number}") } }
                     }
                 }
             }

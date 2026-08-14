@@ -11,8 +11,8 @@ let downloadStatsCache = { expires: 0, data: null };
 
 const baseConfig = Object.freeze({
   appName: 'الفهد TV', packageName: 'com.alfahdtv.app.debug', homeUrl: HOME_URL,
-  minimumVersionCode: 1, latestVersionCode: 15, latestVersionName: '3.0.3',
-  apkUrl: 'https://github.com/merom2854-sketch/elfahd/releases/download/v3.0.3/Al-Fahd-TV-3.0.3.apk',
+  minimumVersionCode: 1, latestVersionCode: 16, latestVersionName: '3.0.4',
+  apkUrl: 'https://github.com/merom2854-sketch/elfahd/releases/download/v3.0.4/Al-Fahd-TV-3.0.4.apk',
   maintenance: false, maintenanceMessage: '',
   features: { downloads: true, fullscreenVideo: true, pictureInPicture: true, anime: true, channels: true, secureScreens: true }
 });

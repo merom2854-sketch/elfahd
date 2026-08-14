@@ -32,6 +32,7 @@ public final class PlayerActivity extends Activity {
     private PlayerView playerView;
     private String mediaUrl;
     private String mediaTitle;
+    private String mediaImage;
     private boolean pipEnabled;
     private boolean autoplay;
     private boolean landscape;
@@ -49,6 +50,7 @@ public final class PlayerActivity extends Activity {
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
         mediaUrl=getIntent().getStringExtra("media_url");
         mediaTitle=getIntent().getStringExtra("media_title");
+        mediaImage=getIntent().getStringExtra("media_image");
         SharedPreferences resume=getSharedPreferences("player_resume",0);
         if(mediaUrl!=null&&mediaUrl.equals(resume.getString("url","")))resumePosition=resume.getLong("position",0);
         pipEnabled=getSharedPreferences("settings",0).getBoolean("pip",true);
@@ -149,7 +151,7 @@ public final class PlayerActivity extends Activity {
         long position=Math.max(0,player.getCurrentPosition());long duration=player.getDuration();
         SharedPreferences.Editor edit=getSharedPreferences("player_resume",0).edit();
         if(duration>0&&position>=duration-15_000L)edit.clear();
-        else edit.putString("url",mediaUrl).putString("title",mediaTitle==null?"الفهد TV":mediaTitle).putLong("position",position).putLong("duration",duration);
+        else edit.putString("url",mediaUrl).putString("title",mediaTitle==null?"الفهد TV":mediaTitle).putString("image",mediaImage==null?"":mediaImage).putLong("position",position).putLong("duration",duration);
         edit.apply();
     }
 
