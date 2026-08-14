@@ -49,6 +49,7 @@ import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.LiveTv
 import androidx.compose.material.icons.rounded.Menu
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.PersonOutline
@@ -316,7 +317,7 @@ private fun HomeScreen(
         if (error) item { ErrorCard(onRetry) }
         if (loading) item { LoadingBlock() }
         if (!loading) {
-            if (resume != null) item { ResumeCard(resume, onResume) }
+            if (resume != null) item { ResumeSection(resume, onResume) }
             item { TelegramBanner(onTelegram) }
             item { ContentRail("وصل حديثًا", movies.take(12), onSelect, onViewAll = { onViewAll(CatalogKind.MOVIE) }) }
             item { ContentRail("مسلسلات مختارة", series.take(12), onSelect, onViewAll = { onViewAll(CatalogKind.SERIES) }) }
@@ -370,22 +371,36 @@ private fun GlassIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, lab
 }
 
 @Composable
-private fun ResumeCard(resume: ResumeInfo, onResume: () -> Unit) {
+private fun ResumeSection(resume: ResumeInfo, onResume: () -> Unit) {
     val progress = (resume.position.toFloat() / resume.duration.toFloat()).coerceIn(0f, 1f)
-    Box(Modifier.padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth().height(190.dp).clip(RoundedCornerShape(20.dp)).background(FahdColors.Surface)) {
-        if (resume.image.isNotBlank()) AsyncImage(resume.image, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.Black.copy(alpha = .92f), Color.Black.copy(alpha = .5f), Color.Transparent))))
-        Column(Modifier.align(Alignment.CenterStart).padding(start = 18.dp, end = 150.dp)) {
-            Text("كمل مشاهدة", color = FahdColors.Gold, fontWeight = FontWeight.Black, fontSize = 14.sp)
-            Spacer(Modifier.height(6.dp))
-            Text(resume.title, fontWeight = FontWeight.Black, fontSize = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(12.dp))
-            Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(5.dp)).background(Color.White.copy(alpha = .25f))) { Box(Modifier.fillMaxWidth(progress).height(5.dp).background(FahdColors.Red)) }
-            Spacer(Modifier.height(5.dp))
-            Text("${(progress * 100).toInt()}% مكتمل", color = Color.White.copy(alpha = .75f), fontSize = 12.sp)
+    Column(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp)) {
+        Text("كمل فرجة", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp), textAlign = TextAlign.End)
+        Spacer(Modifier.height(12.dp))
+        LazyRow(contentPadding = PaddingValues(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            item {
+                Column(Modifier.width(310.dp).clickable(onClick = onResume)) {
+                    Box(Modifier.fillMaxWidth().height(174.dp).clip(RoundedCornerShape(17.dp)).background(FahdColors.SurfaceHigh)) {
+                        if (resume.image.isNotBlank()) AsyncImage(resume.image, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .72f)))))
+                        Text(formatResumeTime(resume.position), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 22.dp))
+                        Box(Modifier.align(Alignment.BottomCenter).padding(horizontal = 10.dp, vertical = 10.dp).fillMaxWidth().height(5.dp).clip(RoundedCornerShape(5.dp)).background(Color.White.copy(alpha = .4f))) { Box(Modifier.fillMaxWidth(progress).height(5.dp).background(Color(0xFF20D29A))) }
+                    }
+                    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(resume.title, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Icon(Icons.Rounded.MoreVert, "خيارات", tint = FahdColors.Muted, modifier = Modifier.size(22.dp))
+                    }
+                }
+            }
         }
-        IconButton(onClick = onResume, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 20.dp).size(62.dp).clip(CircleShape).background(FahdColors.Red)) { Icon(Icons.Rounded.PlayArrow, "متابعة", tint = Color.White, modifier = Modifier.size(34.dp)) }
     }
+}
+
+private fun formatResumeTime(milliseconds: Long): String {
+    val totalSeconds = (milliseconds / 1000L).coerceAtLeast(0L)
+    val hours = totalSeconds / 3600L
+    val minutes = (totalSeconds % 3600L) / 60L
+    val seconds = totalSeconds % 60L
+    return if (hours > 0) String.format(java.util.Locale.US, "%d:%02d:%02d", hours, minutes, seconds) else String.format(java.util.Locale.US, "%02d:%02d", minutes, seconds)
 }
 
 @Composable
