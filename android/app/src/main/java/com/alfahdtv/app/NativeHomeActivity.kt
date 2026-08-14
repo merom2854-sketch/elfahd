@@ -560,14 +560,17 @@ private fun DetailScreen(
 }
 
 @Composable
-private fun CastRow(actors: List<String>) {
+private fun CastRow(actors: List<Actor>) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp)) {
         Text("أبطال العمل", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(8.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(end = 4.dp)) {
-            items(actors) { actor ->
-                Surface(color = FahdColors.SurfaceHigh, shape = RoundedCornerShape(12.dp)) {
-                    Text(actor, color = FahdColors.Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp))
+            items(actors, key = { it.name }) { actor ->
+                Column(Modifier.width(116.dp).clip(RoundedCornerShape(15.dp)).background(FahdColors.SurfaceHigh).padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (actor.image.isNotBlank()) AsyncImage(actor.image, actor.name, Modifier.size(72.dp).clip(CircleShape), contentScale = ContentScale.Crop)
+                    else Box(Modifier.size(72.dp).clip(CircleShape).background(FahdColors.Divider), contentAlignment = Alignment.Center) { Text(actor.name.take(1), color = FahdColors.Muted, fontSize = 24.sp, fontWeight = FontWeight.Bold) }
+                    Spacer(Modifier.height(7.dp))
+                    Text(actor.name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
                 }
             }
         }

@@ -17,13 +17,14 @@ data class CatalogItem(
 )
 
 data class Episode(val number: String, val link: String)
+data class Actor(val name: String, val image: String)
 
 data class ContentDetail(
     val title: String,
     val description: String,
     val mediaUrl: String,
     val episodes: List<Episode>,
-    val actors: List<String>,
+    val actors: List<Actor>,
 )
 
 class NativeCatalogRepository {
@@ -106,9 +107,9 @@ class NativeCatalogRepository {
             val actorsJson = payload.optJSONArray("actors")
             if (actorsJson != null) for (index in 0 until actorsJson.length()) {
                 val actor = actorsJson.optString(index).trim()
-                if (actor.isNotBlank() && actor.length <= 60 && !actor.contains("الموسم") && !actor.contains("الحلقة") && !actor.contains("أبطال بلباس النوم")) add(actor)
+                if (actor.isNotBlank() && actor.length <= 60 && !actor.contains("الموسم") && !actor.contains("الحلقة") && !actor.contains("أبطال بلباس النوم")) add(Actor(actor, ""))
             }
-        }.distinct().take(12)
+        }.distinctBy { it.name }.take(12)
         return ContentDetail(
             title = rawTitle.replace(Regex("^مشاهدة\\s+(فيلم|مسلسل)\\s+"), "").trim().ifBlank { fallbackTitle },
             description = payload.optString("description").trim(),
@@ -134,12 +135,12 @@ class NativeCatalogRepository {
         }
     }
 
-    private fun metadataActors(title: String, kind: CatalogKind): List<String> {
+    private fun metadataActors(title: String, kind: CatalogKind): List<Actor> {
         return runCatching {
             val type = if (kind == CatalogKind.MOVIE) "movie" else "tv"
             val payload = request("$METADATA_API?title=${encode(title)}&kind=$type")
             val values = payload.optJSONObject("data")?.optJSONArray("actors") ?: return@runCatching emptyList()
-            buildList { for (index in 0 until values.length()) values.optString(index).trim().takeIf { it.isNotBlank() }?.let(::add) }.distinct().take(12)
+            buildList { for (index in 0 until values.length()) { val actor = values.optJSONObject(index); if (actor != null) add(Actor(actor.optString("name").trim(), actor.optString("image").trim())) } }.filter { it.name.isNotBlank() }.distinctBy { it.name }.take(12)
         }.getOrDefault(emptyList())
     }
 
