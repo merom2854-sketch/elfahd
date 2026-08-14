@@ -195,7 +195,7 @@ private fun FahdApp(
 ) {
     val context = LocalContext.current
     val library = remember { context.getSharedPreferences("data", 0) }
-    val resume = remember(resumeVersion) {
+    val storedResume = remember(resumeVersion) {
         context.getSharedPreferences("player_resume", 0).let { prefs ->
             val url = prefs.getString("url", "").orEmpty()
             val title = prefs.getString("title", "").orEmpty()
@@ -218,6 +218,17 @@ private fun FahdApp(
     var searchOpen by remember { mutableStateOf(false) }
     var allKind by remember { mutableStateOf<CatalogKind?>(null) }
     var reloadKey by remember { mutableIntStateOf(0) }
+    val resume = remember(storedResume, movies, series, anime) {
+        storedResume?.let { saved ->
+            if (saved.image.isNotBlank()) saved else {
+                val baseTitle = saved.title.substringBefore(" •").trim()
+                val match = (movies + series + anime).firstOrNull { item ->
+                    baseTitle.startsWith(item.title, ignoreCase = true) || item.title.startsWith(baseTitle, ignoreCase = true)
+                }
+                saved.copy(image = match?.image.orEmpty())
+            }
+        }
+    }
 
     LaunchedEffect(reloadKey) {
         loading = true; error = false
