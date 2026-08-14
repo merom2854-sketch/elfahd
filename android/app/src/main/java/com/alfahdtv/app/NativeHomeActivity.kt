@@ -82,14 +82,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -139,7 +143,9 @@ class NativeHomeActivity : ComponentActivity() {
     }
 
     private fun play(url: String, title: String) {
-        if (!url.startsWith("https://")) { toast("مصدر المشاهدة غير متاح الآن"); return }
+        val uri = runCatching { Uri.parse(url) }.getOrNull()
+        val trustedHttp = uri?.scheme.equals("http", true) && uri?.host?.lowercase()?.endsWith(".downet.net") == true
+        if (!url.startsWith("https://") && !trustedHttp) { toast("مصدر المشاهدة غير متاح الآن"); return }
         startActivity(Intent(this, PlayerActivity::class.java).putExtra("media_url", url).putExtra("media_title", title))
     }
 
@@ -192,6 +198,7 @@ private fun FahdApp(
     var destination by remember { mutableStateOf(FahdDestination.HOME) }
     var selected by remember { mutableStateOf<CatalogItem?>(null) }
     var searchOpen by remember { mutableStateOf(false) }
+    var allKind by remember { mutableStateOf<CatalogKind?>(null) }
     var reloadKey by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(reloadKey) {
@@ -208,18 +215,19 @@ private fun FahdApp(
         loading = false
     }
 
-    BackHandler(enabled = selected != null || searchOpen || destination != FahdDestination.HOME) {
-        when { selected != null -> selected = null; searchOpen -> searchOpen = false; else -> destination = FahdDestination.HOME }
+    BackHandler(enabled = selected != null || searchOpen || allKind != null || destination != FahdDestination.HOME) {
+        when { selected != null -> selected = null; searchOpen -> searchOpen = false; allKind != null -> allKind = null; else -> destination = FahdDestination.HOME }
     }
 
     Scaffold(
         containerColor = FahdColors.Background,
         bottomBar = {
-            if (selected == null && !searchOpen) FahdBottomBar(destination) { destination = it }
+            if (selected == null && !searchOpen) FahdBottomBar(destination) { next -> allKind = null; destination = next }
         },
     ) { padding ->
-        AnimatedContent(targetState = Triple(selected, searchOpen, destination), label = "screen") { state ->
-            val item = state.first
+        val screenKey = "${selected?.href.orEmpty()}|$searchOpen|${allKind?.name.orEmpty()}|${destination.name}"
+        AnimatedContent(targetState = screenKey, label = "screen") {
+            val item = selected
             when {
                 item != null -> DetailScreen(
                     item = item,
@@ -244,11 +252,16 @@ private fun FahdApp(
                     onPlay = onPlay,
                     onDownload = onDownload,
                 )
-                state.second -> SearchScreen((movies + series + anime).distinctBy { it.href }, onBack = { searchOpen = false }, onSelect = { selected = it; searchOpen = false })
-                state.third == FahdDestination.HOME -> HomeScreen(movies, series, anime, loading, error, onRetry = { reloadKey++ }, onSelect = { selected = it }, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onTelegram = { onOpenExternal("https://t.me/elfahd_tv") }, contentBottomPadding = padding.calculateBottomPadding())
-                state.third == FahdDestination.MOVIES -> CatalogGrid("الأفلام", movies, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding())
-                state.third == FahdDestination.SERIES -> CatalogGrid("المسلسلات", series, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding())
-                state.third == FahdDestination.CHANNELS -> ChannelsScreen(onBack = { destination = FahdDestination.HOME }, onOpenExternal = onOpenExternal, bottomPadding = padding.calculateBottomPadding())
+                searchOpen -> SearchScreen(repository, onBack = { searchOpen = false }, onSelect = { selected = it; searchOpen = false })
+                allKind != null -> {
+                    val content = when (allKind) { CatalogKind.MOVIE -> movies; CatalogKind.SERIES -> series; CatalogKind.ANIME -> anime; null -> emptyList() }
+                    val title = when (allKind) { CatalogKind.MOVIE -> "وصل حديثًا"; CatalogKind.SERIES -> "مسلسلات مختارة"; CatalogKind.ANIME -> "الأنمي والكرتون"; null -> "عرض الكل" }
+                    CatalogGrid(title, content, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding())
+                }
+                destination == FahdDestination.HOME -> HomeScreen(movies, series, anime, loading, error, onRetry = { reloadKey++ }, onSelect = { selected = it }, onViewAll = { allKind = it }, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onTelegram = { onOpenExternal("https://t.me/elfahd_tv") }, contentBottomPadding = padding.calculateBottomPadding())
+                destination == FahdDestination.MOVIES -> CatalogGrid("الأفلام", movies, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding())
+                destination == FahdDestination.SERIES -> CatalogGrid("المسلسلات", series, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding())
+                destination == FahdDestination.CHANNELS -> ChannelsScreen(onBack = { destination = FahdDestination.HOME }, onOpenExternal = onOpenExternal, bottomPadding = padding.calculateBottomPadding())
                 else -> LibraryScreen((movies + series + anime).distinctBy { it.href }, favoriteEntries, historyEntries, onSelect = { selected = it }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, bottomPadding = padding.calculateBottomPadding())
             }
         }
@@ -264,6 +277,7 @@ private fun HomeScreen(
     error: Boolean,
     onRetry: () -> Unit,
     onSelect: (CatalogItem) -> Unit,
+    onViewAll: (CatalogKind) -> Unit,
     onSearch: () -> Unit,
     onDownloads: () -> Unit,
     onSettings: () -> Unit,
@@ -284,9 +298,9 @@ private fun HomeScreen(
         if (loading) item { LoadingBlock() }
         if (!loading) {
             item { TelegramBanner(onTelegram) }
-            item { ContentRail("وصل حديثًا", movies.take(12), onSelect) }
-            item { ContentRail("مسلسلات مختارة", series.take(12), onSelect) }
-            item { ContentRail("الأنمي والكرتون", anime.take(12), onSelect) }
+            item { ContentRail("وصل حديثًا", movies.take(12), onSelect, onViewAll = { onViewAll(CatalogKind.MOVIE) }) }
+            item { ContentRail("مسلسلات مختارة", series.take(12), onSelect, onViewAll = { onViewAll(CatalogKind.SERIES) }) }
+            item { ContentRail("الأنمي والكرتون", anime.take(12), onSelect, onViewAll = { onViewAll(CatalogKind.ANIME) }) }
         }
     }
 }
@@ -345,9 +359,12 @@ private fun TelegramBanner(onClick: () -> Unit) {
 }
 
 @Composable
-private fun ContentRail(title: String, content: List<CatalogItem>, onSelect: (CatalogItem) -> Unit) {
+private fun ContentRail(title: String, content: List<CatalogItem>, onSelect: (CatalogItem) -> Unit, onViewAll: (() -> Unit)? = null) {
     Column(Modifier.fillMaxWidth().padding(top = 18.dp)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) { Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f)); Text("عرض الكل", color = FahdColors.Red, fontSize = 13.sp) }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            if (onViewAll != null) Text("عرض الكل", color = FahdColors.Red, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clip(RoundedCornerShape(9.dp)).clickable(onClick = onViewAll).padding(horizontal = 10.dp, vertical = 8.dp))
+        }
         LazyRow(contentPadding = PaddingValues(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(11.dp)) { items(content, key = { it.href }) { PosterCard(it, onSelect) } }
     }
 }
@@ -386,18 +403,37 @@ private fun CatalogGrid(title: String, content: List<CatalogItem>, loading: Bool
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
-private fun SearchScreen(content: List<CatalogItem>, onBack: () -> Unit, onSelect: (CatalogItem) -> Unit) {
+private fun SearchScreen(repository: NativeCatalogRepository, onBack: () -> Unit, onSelect: (CatalogItem) -> Unit) {
     var query by remember { mutableStateOf("") }
-    val results = remember(query, content) { if (query.length < 2) emptyList() else content.filter { it.title.contains(query, ignoreCase = true) } }
+    var results by remember { mutableStateOf<List<CatalogItem>>(emptyList()) }
+    var loading by remember { mutableStateOf(false) }
+    var failed by remember { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(Unit) { focusRequester.requestFocus(); keyboard?.show() }
+    LaunchedEffect(query) {
+        val clean = query.trim()
+        if (clean.length < 2) { results = emptyList(); loading = false; failed = false; return@LaunchedEffect }
+        delay(350)
+        loading = true; failed = false
+        try { results = repository.search(clean) } catch (_: Exception) { results = emptyList(); failed = true }
+        loading = false
+    }
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowForward, "رجوع") }
-            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.weight(1f), singleLine = true, placeholder = { Text("ابحث عن فيلم أو مسلسل") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = FahdColors.Red, unfocusedBorderColor = FahdColors.Divider), shape = RoundedCornerShape(15.dp))
+            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.weight(1f).focusRequester(focusRequester), singleLine = true, placeholder = { Text("ابحث في كل الأفلام والمسلسلات") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = FahdColors.Red, unfocusedBorderColor = FahdColors.Divider), shape = RoundedCornerShape(15.dp))
         }
         Spacer(Modifier.height(18.dp))
-        if (query.length < 2) EmptyMessage("اكتب حرفين على الأقل للبحث") else if (results.isEmpty()) EmptyMessage("لا توجد نتائج مطابقة") else LazyVerticalGrid(columns = GridCells.Fixed(3), contentPadding = PaddingValues(bottom = 24.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(17.dp)) { items(results, key = { it.href }) { PosterCard(it, onSelect) } }
+        when {
+            query.trim().length < 2 -> EmptyMessage("اكتب حرفين على الأقل للبحث")
+            loading -> LoadingBlock()
+            failed -> EmptyMessage("تعذر تنفيذ البحث، تأكد من الإنترنت وحاول مرة أخرى")
+            results.isEmpty() -> EmptyMessage("لا توجد نتائج مطابقة")
+            else -> LazyVerticalGrid(columns = GridCells.Fixed(3), contentPadding = PaddingValues(bottom = 24.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(17.dp)) { items(results, key = { it.href }) { PosterCard(it, onSelect) } }
+        }
     }
 }
 
@@ -418,6 +454,7 @@ private fun DetailScreen(
     var loading by remember(item.href) { mutableStateOf(true) }
     var failed by remember(item.href) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     LaunchedEffect(item.href) { try { detail = repository.detail(item); failed = false } catch (_: Exception) { failed = true }; loading = false }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
         item {
@@ -447,7 +484,7 @@ private fun DetailScreen(
                 Column(Modifier.padding(top = 14.dp)) {
                     Text("الحلقات", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        items(loaded.episodes) { episode -> OutlinedButton(onClick = { scope.launch { try { val episodeDetail = repository.episode(episode.link, "الحلقة ${episode.number}"); if (episodeDetail.mediaUrl.isNotBlank()) { onRecordHistory(); onPlay(episodeDetail.mediaUrl, "${loaded.title} • الحلقة ${episode.number}") } } catch (_: Exception) {} } }, shape = RoundedCornerShape(12.dp)) { Text("الحلقة ${episode.number}") } }
+                        items(loaded.episodes) { episode -> OutlinedButton(onClick = { scope.launch { try { val episodeDetail = repository.episode(episode.link, "الحلقة ${episode.number}"); if (episodeDetail.mediaUrl.isNotBlank()) { onRecordHistory(); onPlay(episodeDetail.mediaUrl, "${loaded.title} • الحلقة ${episode.number}") } else Toast.makeText(context, "مصدر الحلقة غير متاح الآن", Toast.LENGTH_SHORT).show() } catch (_: Exception) { Toast.makeText(context, "تعذر فتح الحلقة، حاول مرة أخرى", Toast.LENGTH_SHORT).show() } } }, shape = RoundedCornerShape(12.dp)) { Text("الحلقة ${episode.number}") } }
                     }
                 }
             }

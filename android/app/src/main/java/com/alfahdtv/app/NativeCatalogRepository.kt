@@ -57,6 +57,30 @@ class NativeCatalogRepository {
         return (movies + series).distinctBy { it.href }.take(limit)
     }
 
+    suspend fun search(query: String, limit: Int = 30): List<CatalogItem> = withContext(Dispatchers.IO) {
+        val clean = query.trim()
+        if (clean.length < 2) return@withContext emptyList()
+        val payload = request("$WORKER?action=search&q=${encode(clean)}&p=1")
+        val data = payload.optJSONArray("data") ?: return@withContext emptyList()
+        val seen = HashSet<String>()
+        buildList {
+            for (index in 0 until data.length()) {
+                val value = data.optJSONObject(index) ?: continue
+                val title = value.optString("title").trim()
+                val href = value.optString("href").trim()
+                val image = value.optString("img").trim()
+                if (title.isBlank() || !href.startsWith("https://") || !seen.add(href) || isNoise(title)) continue
+                val kind = when {
+                    href.contains("/series/") -> CatalogKind.SERIES
+                    title.contains("أنمي", ignoreCase = true) -> CatalogKind.ANIME
+                    else -> CatalogKind.MOVIE
+                }
+                add(CatalogItem(title, href, highResolutionPoster(image), kind))
+                if (size >= limit) break
+            }
+        }
+    }
+
     suspend fun detail(item: CatalogItem): ContentDetail = withContext(Dispatchers.IO) {
         parseDetail(request("$WORKER?action=series&series=${encode(item.href)}"), item.title)
     }
@@ -78,7 +102,7 @@ class NativeCatalogRepository {
         return ContentDetail(
             title = rawTitle.replace(Regex("^مشاهدة\\s+(فيلم|مسلسل)\\s+"), "").trim().ifBlank { fallbackTitle },
             description = payload.optString("description").trim(),
-            mediaUrl = payload.optString("media_src").takeIf { it.startsWith("https://") } ?: "",
+            mediaUrl = compatibleMediaUrl(payload.optString("media_src")),
             episodes = episodes,
         )
     }
@@ -102,4 +126,8 @@ class NativeCatalogRepository {
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
     private fun isNoise(title: String): Boolean = title.equals("اكوام", true) || title.contains("web stats", true) || title.contains("إشعارات اكوام")
     private fun highResolutionPoster(value: String): String = value.replace(Regex("/thumb/\\d+x\\d+/"), "/")
+    private fun compatibleMediaUrl(value: String): String {
+        val clean = value.trim()
+        return if (clean.startsWith("https://") && Regex("^https://(?:[^/]+\\.)?downet\\.net/", RegexOption.IGNORE_CASE).containsMatchIn(clean)) clean.replaceFirst("https://", "http://") else clean.takeIf { it.startsWith("https://") } ?: ""
+    }
 }

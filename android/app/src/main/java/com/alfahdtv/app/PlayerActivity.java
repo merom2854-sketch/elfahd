@@ -5,6 +5,7 @@ import android.app.PictureInPictureParams;
 import android.content.res.Configuration;
 import android.os.Build;
 import android.os.Bundle;
+import android.net.Uri;
 import android.util.Rational;
 import android.graphics.Color;
 import android.view.Gravity;
@@ -61,6 +62,7 @@ public final class PlayerActivity extends Activity {
 
     private ImageButton playerButton(int icon,String description){ImageButton button=new ImageButton(this);button.setImageResource(icon);button.setContentDescription(description);button.setBackground(AppUi.round(Color.argb(105,20,21,27),24,this));button.setPadding(dp(10),dp(10),dp(10),dp(10));return button;}
     private int dp(int value){return AppUi.dp(this,value);}
+    private boolean isTrustedMediaUrl(String value){if(value==null)return false;try{Uri uri=Uri.parse(value);String scheme=uri.getScheme(),host=uri.getHost();return "https".equalsIgnoreCase(scheme)||("http".equalsIgnoreCase(scheme)&&host!=null&&host.toLowerCase(java.util.Locale.ROOT).endsWith(".downet.net"));}catch(Exception ignored){return false;}}
 
     @Override protected void onStart() {
         super.onStart();
@@ -68,7 +70,7 @@ public final class PlayerActivity extends Activity {
     }
 
     private void preparePlayer() {
-        if(mediaUrl==null||!mediaUrl.startsWith("https://")){finish();return;}
+        if(!isTrustedMediaUrl(mediaUrl)){finish();return;}
         player=new ExoPlayer.Builder(this).build();
         playerView.setPlayer(player);
         player.setMediaItem(MediaItem.fromUri(mediaUrl));

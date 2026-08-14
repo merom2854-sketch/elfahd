@@ -65,6 +65,7 @@ final class VideoDownloads {
         DownloadManager manager=(DownloadManager)context.getSystemService(Context.DOWNLOAD_SERVICE);
         long id=manager.enqueue(request);
         save(context,new Record(id,name,url,contentType,userAgent==null?"":userAgent,cookie==null?"":cookie,System.currentTimeMillis(),false));
+        hideObsoleteAttempts(context,id,name);
         return id;
     }
 
@@ -79,6 +80,17 @@ final class VideoDownloads {
             }catch(Exception ignored){}
         }
         result.sort((a,b)->Long.compare(b.createdAt,a.createdAt));
+        Set<String> viableNames=new HashSet<>();
+        for(Record record:result){
+            Snapshot state=snapshot(context,record);
+            if(!record.cancelled&&state.exists&&state.status!=DownloadManager.STATUS_FAILED)viableNames.add(record.name.toLowerCase(Locale.ROOT));
+        }
+        List<Record> obsolete=new ArrayList<>();
+        for(Record record:result){
+            Snapshot state=snapshot(context,record);
+            if(viableNames.contains(record.name.toLowerCase(Locale.ROOT))&&(record.cancelled||!state.exists||state.status==DownloadManager.STATUS_FAILED))obsolete.add(record);
+        }
+        for(Record record:obsolete){forget(context,record.id);result.remove(record);}
         return result;
     }
 
@@ -137,6 +149,16 @@ final class VideoDownloads {
         Set<String> ids=new HashSet<>(prefs.getStringSet(IDS,Collections.emptySet()));ids.add(String.valueOf(record.id));
         String key="item_"+record.id+"_";
         prefs.edit().putStringSet(IDS,ids).putString(key+"name",record.name).putString(key+"url",record.url).putString(key+"mime",record.mime).putString(key+"ua",record.userAgent).putString(key+"cookie",record.cookie).putLong(key+"created",record.createdAt).putBoolean(key+"cancelled",record.cancelled).apply();
+    }
+
+    private static void hideObsoleteAttempts(Context context,long currentId,String currentName){
+        for(Record previous:new ArrayList<>(records(context))){
+            if(previous.id==currentId||!previous.name.equalsIgnoreCase(currentName))continue;
+            Snapshot state=snapshot(context,previous);
+            if(previous.cancelled||!state.exists||state.status==DownloadManager.STATUS_FAILED){
+                forget(context,previous.id);
+            }
+        }
     }
 
     private static String fileName(Context context,String title,String url,String mime){
