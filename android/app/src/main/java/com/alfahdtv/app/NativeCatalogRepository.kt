@@ -23,11 +23,13 @@ data class ContentDetail(
     val description: String,
     val mediaUrl: String,
     val episodes: List<Episode>,
+    val actors: List<String>,
 )
 
 class NativeCatalogRepository {
     companion object {
         private const val WORKER = "https://akwam-stream-fetcher.meroo3292.workers.dev/"
+        private const val METADATA_API = "https://al-fahd-api-production.up.railway.app/v1/metadata"
         const val MOVIES = "https://akwam.it/movies"
         const val SERIES = "https://akwam.it/series"
         const val ANIME_MOVIES = "https://akwam.it/movies?category=30&section=0"
@@ -82,7 +84,8 @@ class NativeCatalogRepository {
     }
 
     suspend fun detail(item: CatalogItem): ContentDetail = withContext(Dispatchers.IO) {
-        parseDetail(request("$WORKER?action=series&series=${encode(item.href)}"), item.title)
+        val parsed = parseDetail(request("$WORKER?action=series&series=${encode(item.href)}"), item.title)
+        if (parsed.actors.isNotEmpty()) parsed else parsed.copy(actors = metadataActors(item.title, item.kind))
     }
 
     suspend fun episode(link: String, fallbackTitle: String): ContentDetail = withContext(Dispatchers.IO) {
@@ -99,11 +102,19 @@ class NativeCatalogRepository {
             }
         }
         val rawTitle = payload.optString("movie_title", fallbackTitle)
+        val actors = buildList {
+            val actorsJson = payload.optJSONArray("actors")
+            if (actorsJson != null) for (index in 0 until actorsJson.length()) {
+                val actor = actorsJson.optString(index).trim()
+                if (actor.isNotBlank() && actor.length <= 60 && !actor.contains("الموسم") && !actor.contains("الحلقة") && !actor.contains("أبطال بلباس النوم")) add(actor)
+            }
+        }.distinct().take(12)
         return ContentDetail(
             title = rawTitle.replace(Regex("^مشاهدة\\s+(فيلم|مسلسل)\\s+"), "").trim().ifBlank { fallbackTitle },
             description = payload.optString("description").trim(),
             mediaUrl = compatibleMediaUrl(payload.optString("media_src")),
             episodes = episodes,
+            actors = actors,
         )
     }
 
@@ -121,6 +132,15 @@ class NativeCatalogRepository {
         } finally {
             connection.disconnect()
         }
+    }
+
+    private fun metadataActors(title: String, kind: CatalogKind): List<String> {
+        return runCatching {
+            val type = if (kind == CatalogKind.MOVIE) "movie" else "tv"
+            val payload = request("$METADATA_API?title=${encode(title)}&kind=$type")
+            val values = payload.optJSONObject("data")?.optJSONArray("actors") ?: return@runCatching emptyList()
+            buildList { for (index in 0 until values.length()) values.optString(index).trim().takeIf { it.isNotBlank() }?.let(::add) }.distinct().take(12)
+        }.getOrDefault(emptyList())
     }
 
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")

@@ -5,13 +5,14 @@ const PORT = Number(process.env.PORT || 3000);
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
 const HOME_URL = process.env.HOME_URL || 'https://elfahd-tv.vercel.app/#/home';
 const FOOTBALL_API_KEY = process.env.FOOTBALL_API_KEY || '';
+const TMDB_READ_TOKEN = process.env.TMDB_READ_TOKEN || '';
 const buckets = new Map();
 let downloadStatsCache = { expires: 0, data: null };
 
 const baseConfig = Object.freeze({
   appName: 'الفهد TV', packageName: 'com.alfahdtv.app.debug', homeUrl: HOME_URL,
-  minimumVersionCode: 1, latestVersionCode: 14, latestVersionName: '3.0.2',
-  apkUrl: 'https://github.com/merom2854-sketch/elfahd/releases/download/v3.0.2/Al-Fahd-TV-3.0.2.apk',
+  minimumVersionCode: 1, latestVersionCode: 15, latestVersionName: '3.0.3',
+  apkUrl: 'https://github.com/merom2854-sketch/elfahd/releases/download/v3.0.3/Al-Fahd-TV-3.0.3.apk',
   maintenance: false, maintenanceMessage: '',
   features: { downloads: true, fullscreenVideo: true, pictureInPicture: true, anime: true, channels: true, secureScreens: true }
 });
@@ -32,12 +33,14 @@ async function footballMatches(date){if(FOOTBALL_API_KEY){try{const upstream=awa
   return fallbackFootball(date);
 }
 async function downloadStats(){const now=Date.now();if(downloadStatsCache.data&&downloadStatsCache.expires>now)return downloadStatsCache.data;const upstream=await fetch('https://api.github.com/repos/merom2854-sketch/elfahd/releases?per_page=100',{headers:{Accept:'application/vnd.github+json','User-Agent':'Al-Fahd-TV'}});if(!upstream.ok)throw new Error('GitHub stats unavailable');const releases=await upstream.json();const apkAssets=releases.flatMap(release=>(release.assets||[]).filter(asset=>/\.apk$/i.test(asset.name)).map(asset=>({tag:release.tag_name,name:asset.name,downloads:Number(asset.download_count)||0})));const data={totalDownloads:apkAssets.reduce((sum,asset)=>sum+asset.downloads,0),latestDownloads:apkAssets[0]?.downloads||0,releaseCount:releases.length,latestVersion:releases[0]?.tag_name||'',updatedAt:new Date().toISOString()};downloadStatsCache={data,expires:now+10*60_000};return data;}
+async function metadataActors(title,kind){if(!TMDB_READ_TOKEN)throw new Error('TMDB metadata is not configured');const type=kind==='movie'?'movie':'tv';const query=encodeURIComponent(String(title||'').trim());if(!query) return [];const search=await fetch(`https://api.themoviedb.org/3/search/${type}?query=${query}&include_adult=false&language=ar`,{headers:{Authorization:`Bearer ${TMDB_READ_TOKEN}`,Accept:'application/json'}});if(!search.ok)throw new Error('TMDB search unavailable');const results=(await search.json()).results||[];const match=results[0];if(!match?.id)return [];const credits=await fetch(`https://api.themoviedb.org/3/${type}/${match.id}/credits?language=ar`,{headers:{Authorization:`Bearer ${TMDB_READ_TOKEN}`,Accept:'application/json'}});if(!credits.ok)throw new Error('TMDB credits unavailable');return ((await credits.json()).cast||[]).slice(0,12).map(item=>String(item.name||'').trim()).filter(Boolean);}
 
 const server=http.createServer((req,res)=>{
   if(limited(req))return send(res,429,{status:'error',message:'Too many requests'},{'Retry-After':'60'});
   if(req.method==='GET'&&req.url==='/health')return send(res,200,{status:'ok',service:'al-fahd-tv-backend'},cors(req));
   if(req.method==='GET'&&req.url==='/v1/config')return send(res,200,{status:'success',data:baseConfig},cors(req));
   if(req.method==='GET'&&req.url==='/v1/stats/downloads')return downloadStats().then(data=>send(res,200,{status:'success',data},{...cors(req),'Cache-Control':'public, max-age=300'})).catch(()=>send(res,502,{status:'error',message:'Download statistics unavailable'},cors(req)));
+  if(req.method==='GET'&&req.url.startsWith('/v1/metadata')){const requestUrl=new URL(req.url,'http://localhost');const title=requestUrl.searchParams.get('title')||'';const kind=requestUrl.searchParams.get('kind')||'movie';return metadataActors(title,kind).then(actors=>send(res,200,{status:'success',data:{actors}},{...cors(req),'Cache-Control':'public, max-age=3600'})).catch(()=>send(res,502,{status:'error',message:'Metadata unavailable'},cors(req)));}
   if(req.method==='GET'&&req.url.startsWith('/v1/football/matches')){
     const requestUrl=new URL(req.url,'http://localhost');const date=requestUrl.searchParams.get('date')||new Date().toISOString().slice(0,10);
     if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return send(res,400,{status:'error',message:'Invalid date'});

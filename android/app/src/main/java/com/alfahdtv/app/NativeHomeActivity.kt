@@ -517,6 +517,7 @@ private fun DetailScreen(
                     OutlinedButton(onClick = { onDownload(loaded) }, enabled = loaded.mediaUrl.isNotBlank(), modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.Download, null); Spacer(Modifier.width(6.dp)); Text("تحميل") }
                 }
             }
+            if (loaded.actors.isNotEmpty()) item { CastRow(loaded.actors) }
             if (loaded.description.isNotBlank()) item { Column(Modifier.padding(horizontal = 18.dp, vertical = 12.dp)) { Text("القصة", style = MaterialTheme.typography.titleLarge); Spacer(Modifier.height(8.dp)); Text(loaded.description, color = FahdColors.Muted, style = MaterialTheme.typography.bodyLarge) } }
             if (loaded.episodes.isNotEmpty()) item {
                 Column(Modifier.padding(top = 14.dp)) {
@@ -527,6 +528,21 @@ private fun DetailScreen(
                 }
             }
             item { ContentRail("قد يعجبك أيضًا", related.take(12), onSelect = onRelated) }
+        }
+    }
+}
+
+@Composable
+private fun CastRow(actors: List<String>) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp)) {
+        Text("أبطال العمل", style = MaterialTheme.typography.titleLarge)
+        Spacer(Modifier.height(8.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(end = 4.dp)) {
+            items(actors) { actor ->
+                Surface(color = FahdColors.SurfaceHigh, shape = RoundedCornerShape(12.dp)) {
+                    Text(actor, color = FahdColors.Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp))
+                }
+            }
         }
     }
 }
