@@ -1,4 +1,5 @@
 apply plugin: 'com.android.application'
+apply plugin: 'org.jetbrains.kotlin.android'
 
 android {
     namespace 'com.alfahdtv.app'
@@ -8,8 +9,8 @@ android {
         applicationId 'com.alfahdtv.app'
         minSdk 24
         targetSdk 34
-        versionCode 11
-        versionName '2.0.1'
+        versionCode 12
+        versionName '3.0.0'
         buildConfigField 'String', 'HOME_URL', '"https://elfahd-tv.vercel.app/#/home"'
         buildConfigField 'String', 'ALLOWED_HOST', '"elfahd-tv.vercel.app"'
     }
@@ -21,6 +22,15 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+    }
+
+    buildFeatures {
+        buildConfig true
+        compose true
+    }
+
+    composeOptions {
+        kotlinCompilerExtensionVersion '1.5.14'
     }
 
     buildTypes {
@@ -36,11 +46,29 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_11
-        targetCompatibility JavaVersion.VERSION_11
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
     }
 }
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.aar'])
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.activity:activity-compose:1.9.0'
+    implementation 'androidx.compose.ui:ui:1.6.8'
+    implementation 'androidx.compose.ui:ui-tooling-preview:1.6.8'
+    implementation 'androidx.compose.foundation:foundation:1.6.8'
+    implementation 'androidx.compose.animation:animation:1.6.8'
+    implementation 'androidx.compose.material3:material3:1.2.1'
+    implementation 'androidx.compose.material:material-icons-extended:1.6.8'
+    implementation 'io.coil-kt:coil-compose:2.6.0'
+}
+
+configurations.configureEach {
+    resolutionStrategy.force 'androidx.annotation:annotation:1.8.2'
+    resolutionStrategy.force 'androidx.lifecycle:lifecycle-runtime:2.8.2'
 }

@@ -4,6 +4,7 @@ android/.gradle-*/
 android/.tools/
 android/**/build/
 android/local.properties
+android/local-maven/
 
 # Secrets and local environment configuration
 **/.env

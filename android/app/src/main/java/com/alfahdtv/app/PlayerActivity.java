@@ -6,10 +6,19 @@ import android.content.res.Configuration;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Rational;
+import android.graphics.Color;
+import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
+import android.widget.FrameLayout;
+import android.widget.ImageButton;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.PlaybackException;
+import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
 
@@ -17,19 +26,41 @@ public final class PlayerActivity extends Activity {
     private ExoPlayer player;
     private PlayerView playerView;
     private String mediaUrl;
+    private String mediaTitle;
     private boolean pipEnabled;
+    private boolean autoplay;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
         mediaUrl=getIntent().getStringExtra("media_url");
+        mediaTitle=getIntent().getStringExtra("media_title");
         pipEnabled=getSharedPreferences("settings",0).getBoolean("pip",true);
+        autoplay=getSharedPreferences("settings",0).getBoolean("autoplay",true);
+        if(getSharedPreferences("settings",0).getBoolean("secure",true))getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         playerView=new PlayerView(this);
         playerView.setUseController(true);
-        setContentView(playerView);
+        playerView.setControllerShowTimeoutMs(3500);
+        playerView.setControllerAutoShow(true);
+        setContentView(buildPlayerLayout());
         updatePipParams();
     }
+
+    private View buildPlayerLayout(){
+        FrameLayout root=new FrameLayout(this);root.setBackgroundColor(Color.BLACK);
+        root.addView(playerView,new FrameLayout.LayoutParams(-1,-1));
+        LinearLayout top=new LinearLayout(this);top.setOrientation(LinearLayout.HORIZONTAL);top.setGravity(Gravity.CENTER_VERTICAL);top.setPadding(dp(10),dp(8),dp(10),dp(8));top.setBackgroundResource(R.drawable.top_overlay);
+        ImageButton back=playerButton(R.drawable.ic_player_back,"رجوع");back.setOnClickListener(v->finish());top.addView(back,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        TextView title=AppUi.text(this,mediaTitle==null||mediaTitle.trim().isEmpty()?"الفهد TV":mediaTitle,16,Color.WHITE);title.setTypeface(null,1);title.setSingleLine(true);title.setEllipsize(android.text.TextUtils.TruncateAt.END);LinearLayout.LayoutParams titleParams=new LinearLayout.LayoutParams(0,dp(48),1);titleParams.setMargins(dp(9),0,dp(9),0);top.addView(title,titleParams);
+        if(Build.VERSION.SDK_INT>=26&&pipEnabled){ImageButton pip=playerButton(R.drawable.ic_player_pip,"صورة داخل صورة");pip.setOnClickListener(v->enterPip());top.addView(pip,new LinearLayout.LayoutParams(dp(48),dp(48)));}
+        FrameLayout.LayoutParams topParams=new FrameLayout.LayoutParams(-1,dp(72),Gravity.TOP);root.addView(top,topParams);
+        playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener)visibility->top.setVisibility(visibility));
+        return root;
+    }
+
+    private ImageButton playerButton(int icon,String description){ImageButton button=new ImageButton(this);button.setImageResource(icon);button.setContentDescription(description);button.setBackground(AppUi.round(Color.argb(105,20,21,27),24,this));button.setPadding(dp(10),dp(10),dp(10),dp(10));return button;}
+    private int dp(int value){return AppUi.dp(this,value);}
 
     @Override protected void onStart() {
         super.onStart();
@@ -41,8 +72,9 @@ public final class PlayerActivity extends Activity {
         player=new ExoPlayer.Builder(this).build();
         playerView.setPlayer(player);
         player.setMediaItem(MediaItem.fromUri(mediaUrl));
+        player.addListener(new Player.Listener(){@Override public void onPlayerError(PlaybackException error){Toast.makeText(PlayerActivity.this,"تعذر تشغيل الفيديو، حاول مرة أخرى",Toast.LENGTH_LONG).show();}});
         player.prepare();
-        player.play();
+        player.setPlayWhenReady(autoplay);
         updatePipParams();
     }
 
