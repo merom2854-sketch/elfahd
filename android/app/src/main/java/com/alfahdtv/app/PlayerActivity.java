@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.PictureInPictureParams;
 import android.content.res.Configuration;
 import android.content.pm.ActivityInfo;
+import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
@@ -38,6 +39,9 @@ public final class PlayerActivity extends Activity {
     private long lastTapAt;
     private float lastTapX;
     private LinearLayout topOverlay;
+    private long resumePosition;
+    private boolean resumePlaying;
+    private boolean pipTransition;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -45,6 +49,8 @@ public final class PlayerActivity extends Activity {
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
         mediaUrl=getIntent().getStringExtra("media_url");
         mediaTitle=getIntent().getStringExtra("media_title");
+        SharedPreferences resume=getSharedPreferences("player_resume",0);
+        if(mediaUrl!=null&&mediaUrl.equals(resume.getString("url","")))resumePosition=resume.getLong("position",0);
         pipEnabled=getSharedPreferences("settings",0).getBoolean("pip",true);
         autoplay=getSharedPreferences("settings",0).getBoolean("autoplay",true);
         landscape=getResources().getConfiguration().orientation==Configuration.ORIENTATION_LANDSCAPE;
@@ -89,9 +95,10 @@ public final class PlayerActivity extends Activity {
         player=new ExoPlayer.Builder(this).build();
         playerView.setPlayer(player);
         player.setMediaItem(MediaItem.fromUri(mediaUrl));
-        player.addListener(new Player.Listener(){@Override public void onPlayerError(PlaybackException error){Toast.makeText(PlayerActivity.this,"تعذر تشغيل الفيديو، حاول مرة أخرى",Toast.LENGTH_LONG).show();}});
+        player.addListener(new Player.Listener(){@Override public void onPlayerError(PlaybackException error){Toast.makeText(PlayerActivity.this,"تعذر تشغيل الفيديو، حاول مرة أخرى",Toast.LENGTH_LONG).show();}@Override public void onPlaybackStateChanged(int state){if(state==Player.STATE_ENDED)getSharedPreferences("player_resume",0).edit().clear().apply();}});
         player.prepare();
-        player.setPlayWhenReady(autoplay);
+        if(resumePosition>0)player.seekTo(resumePosition);
+        player.setPlayWhenReady(autoplay||resumePlaying);
         updatePipParams();
     }
 
@@ -113,11 +120,12 @@ public final class PlayerActivity extends Activity {
 
     @Override public void onPictureInPictureModeChanged(boolean active, Configuration config) {
         super.onPictureInPictureModeChanged(active,config);
+        if(active)pipTransition=false;
         playerView.setUseController(!active);
     }
 
     @Override protected void onStop() {
-        if(Build.VERSION.SDK_INT<26||!isInPictureInPictureMode())releasePlayer();
+        if(Build.VERSION.SDK_INT<26||(!isInPictureInPictureMode()&&!pipTransition))releasePlayer();
         super.onStop();
     }
 
@@ -128,9 +136,21 @@ public final class PlayerActivity extends Activity {
 
     private void releasePlayer() {
         if(player==null)return;
+        saveResumePosition();
+        resumePosition=Math.max(0,player.getCurrentPosition());
+        resumePlaying=player.isPlaying();
         player.release();
         player=null;
         playerView.setPlayer(null);
+    }
+
+    private void saveResumePosition(){
+        if(player==null||mediaUrl==null||mediaUrl.trim().isEmpty())return;
+        long position=Math.max(0,player.getCurrentPosition());long duration=player.getDuration();
+        SharedPreferences.Editor edit=getSharedPreferences("player_resume",0).edit();
+        if(duration>0&&position>=duration-15_000L)edit.clear();
+        else edit.putString("url",mediaUrl).putString("title",mediaTitle==null?"الفهد TV":mediaTitle).putLong("position",position).putLong("duration",duration);
+        edit.apply();
     }
 
     private void toggleOrientation(){
@@ -157,6 +177,7 @@ public final class PlayerActivity extends Activity {
 
     private boolean enterPip() {
         if(Build.VERSION.SDK_INT<26||!pipEnabled||player==null||!player.isPlaying()||isInPictureInPictureMode())return false;
-        try{return enterPictureInPictureMode(new PictureInPictureParams.Builder().setAspectRatio(new Rational(16,9)).build());}catch(Exception ignored){return false;}
+        pipTransition=true;
+        try{boolean entered=enterPictureInPictureMode(new PictureInPictureParams.Builder().setAspectRatio(new Rational(16,9)).build());if(!entered)pipTransition=false;return entered;}catch(Exception ignored){pipTransition=false;return false;}
     }
 }

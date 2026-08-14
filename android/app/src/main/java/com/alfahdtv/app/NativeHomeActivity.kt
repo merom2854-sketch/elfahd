@@ -110,8 +110,11 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+data class ResumeInfo(val title: String, val url: String, val position: Long, val duration: Long)
+
 class NativeHomeActivity : ComponentActivity() {
     private var pendingDownload: ContentDetail? = null
+    private var resumeVersion by mutableIntStateOf(0)
     private val storagePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val detail = pendingDownload
         pendingDownload = null
@@ -131,6 +134,7 @@ class NativeHomeActivity : ComponentActivity() {
             FahdTheme {
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                     FahdApp(
+                        resumeVersion = resumeVersion,
                         onPlay = ::play,
                         onDownload = ::download,
                         onOpenDownloads = { startActivity(Intent(this, DownloadsActivity::class.java)) },
@@ -141,6 +145,8 @@ class NativeHomeActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onResume() { super.onResume(); resumeVersion++ }
 
     private fun play(url: String, title: String) {
         val uri = runCatching { Uri.parse(url) }.getOrNull()
@@ -179,6 +185,7 @@ private enum class FahdDestination(val label: String) { HOME("الرئيسية")
 
 @Composable
 private fun FahdApp(
+    resumeVersion: Int,
     onPlay: (String, String) -> Unit,
     onDownload: (ContentDetail) -> Unit,
     onOpenDownloads: () -> Unit,
@@ -187,6 +194,15 @@ private fun FahdApp(
 ) {
     val context = LocalContext.current
     val library = remember { context.getSharedPreferences("data", 0) }
+    val resume = remember(resumeVersion) {
+        context.getSharedPreferences("player_resume", 0).let { prefs ->
+            val url = prefs.getString("url", "").orEmpty()
+            val title = prefs.getString("title", "").orEmpty()
+            val position = prefs.getLong("position", 0)
+            val duration = prefs.getLong("duration", 0)
+            if (url.isBlank() || title.isBlank() || position <= 0 || duration <= 0 || position >= duration - 15_000L) null else ResumeInfo(title, url, position, duration)
+        }
+    }
     var favoriteEntries by remember { mutableStateOf(library.getStringSet("favorites", emptySet()).orEmpty().toSet()) }
     var historyEntries by remember { mutableStateOf(library.getStringSet("history", emptySet()).orEmpty().toSet()) }
     val repository = remember { NativeCatalogRepository() }
@@ -258,7 +274,7 @@ private fun FahdApp(
                     val title = when (allKind) { CatalogKind.MOVIE -> "وصل حديثًا"; CatalogKind.SERIES -> "مسلسلات مختارة"; CatalogKind.ANIME -> "الأنمي والكرتون"; null -> "عرض الكل" }
                     CatalogGrid(title, content, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding())
                 }
-                destination == FahdDestination.HOME -> HomeScreen(movies, series, anime, loading, error, onRetry = { reloadKey++ }, onSelect = { selected = it }, onViewAll = { allKind = it }, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onTelegram = { onOpenExternal("https://t.me/elfahd_tv") }, contentBottomPadding = padding.calculateBottomPadding())
+                destination == FahdDestination.HOME -> HomeScreen(movies, series, anime, resume, loading, error, onRetry = { reloadKey++ }, onSelect = { selected = it }, onResume = { resume?.let { onPlay(it.url, it.title) } }, onViewAll = { allKind = it }, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onTelegram = { onOpenExternal("https://t.me/elfahd_tv") }, contentBottomPadding = padding.calculateBottomPadding())
                 destination == FahdDestination.MOVIES -> CatalogGrid("الأفلام", movies, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding())
                 destination == FahdDestination.SERIES -> CatalogGrid("المسلسلات", series, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding())
                 destination == FahdDestination.CHANNELS -> ChannelsScreen(onBack = { destination = FahdDestination.HOME }, onOpenExternal = onOpenExternal, bottomPadding = padding.calculateBottomPadding())
@@ -273,10 +289,12 @@ private fun HomeScreen(
     movies: List<CatalogItem>,
     series: List<CatalogItem>,
     anime: List<CatalogItem>,
+    resume: ResumeInfo?,
     loading: Boolean,
     error: Boolean,
     onRetry: () -> Unit,
     onSelect: (CatalogItem) -> Unit,
+    onResume: () -> Unit,
     onViewAll: (CatalogKind) -> Unit,
     onSearch: () -> Unit,
     onDownloads: () -> Unit,
@@ -297,6 +315,7 @@ private fun HomeScreen(
         if (error) item { ErrorCard(onRetry) }
         if (loading) item { LoadingBlock() }
         if (!loading) {
+            if (resume != null) item { ResumeCard(resume, onResume) }
             item { TelegramBanner(onTelegram) }
             item { ContentRail("وصل حديثًا", movies.take(12), onSelect, onViewAll = { onViewAll(CatalogKind.MOVIE) }) }
             item { ContentRail("مسلسلات مختارة", series.take(12), onSelect, onViewAll = { onViewAll(CatalogKind.SERIES) }) }
@@ -347,6 +366,25 @@ private fun Hero(
 @Composable
 private fun GlassIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, click: () -> Unit) {
     IconButton(onClick = click, modifier = Modifier.padding(start = 5.dp).size(40.dp).clip(CircleShape).background(Color.Black.copy(alpha = .46f))) { Icon(icon, label, tint = Color.White, modifier = Modifier.size(21.dp)) }
+}
+
+@Composable
+private fun ResumeCard(resume: ResumeInfo, onResume: () -> Unit) {
+    val progress = (resume.position.toFloat() / resume.duration.toFloat()).coerceIn(0f, 1f)
+    Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth().clip(RoundedCornerShape(17.dp)).background(FahdColors.Surface).padding(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("كمل مشاهدة", color = FahdColors.Red, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                Spacer(Modifier.height(4.dp))
+                Text(resume.title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Button(onClick = onResume, colors = ButtonDefaults.buttonColors(containerColor = FahdColors.Red), shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(horizontal = 15.dp, vertical = 9.dp)) { Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(5.dp)); Text("متابعة") }
+        }
+        Spacer(Modifier.height(12.dp))
+        Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(5.dp)).background(FahdColors.Divider)) { Box(Modifier.fillMaxWidth(progress).height(5.dp).background(FahdColors.Red)) }
+        Spacer(Modifier.height(5.dp))
+        Text("${(progress * 100).toInt()}% مكتمل", color = FahdColors.Muted, fontSize = 12.sp)
+    }
 }
 
 @Composable

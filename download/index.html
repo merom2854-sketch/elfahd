@@ -32,7 +32,7 @@
   <header><div class="wrap nav">
     <a class="brand" href="#top"><img src="/download/assets/fahd-logo.jpg" alt="شعار الفهد TV"><span>الفهد TV</span></a>
     <nav class="links"><a href="#features">المميزات</a><a href="#screens">صور التطبيق</a><a href="#install">طريقة التثبيت</a><a href="https://t.me/elfahd_tv" target="_blank" rel="noopener">تيليجرام</a></nav>
-    <a class="nav-download apk-link" href="https://github.com/merom2854-sketch/elfahd/releases/download/v3.0.1/Al-Fahd-TV-3.0.1.apk">تحميل التطبيق</a>
+    <a class="nav-download apk-link" href="https://github.com/merom2854-sketch/elfahd/releases/download/v3.0.2/Al-Fahd-TV-3.0.2.apk">تحميل التطبيق</a>
   </div></header>
 
   <main id="top">
@@ -42,14 +42,14 @@
         <h1>كل اللي بتحبه<br><span class="gold">في تطبيق واحد</span></h1>
         <p class="lead">الفهد TV يمنحك واجهة عربية سريعة ومصممة للموبايل، مع مشاهدة مرنة وتنزيلات ومفضلة ومباريات اليوم وتحديثات تلقائية.</p>
         <div class="hero-actions">
-          <a class="download-btn apk-link" href="https://github.com/merom2854-sketch/elfahd/releases/download/v3.0.1/Al-Fahd-TV-3.0.1.apk">
+          <a class="download-btn apk-link" href="https://github.com/merom2854-sketch/elfahd/releases/download/v3.0.2/Al-Fahd-TV-3.0.2.apk">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 21h14"/></svg>
             تحميل للأندرويد
           </a>
           <a class="secondary" href="#screens">شاهد صور التطبيق</a>
           <a class="secondary" href="https://t.me/elfahd_tv" target="_blank" rel="noopener">✈ قناة الفهد على تيليجرام</a>
         </div>
-        <div class="facts"><span><b>●</b> آمن وموقّع</span><span>Android 7.0+</span><span id="versionText">الإصدار 3.0.1</span><span id="sizeText">حجم خفيف</span><span class="download-stat" title="إجمالي تنزيلات ملفات APK لكل الإصدارات"><strong id="downloadCount">—</strong> تحميل حقيقي</span></div>
+        <div class="facts"><span><b>●</b> آمن وموقّع</span><span>Android 7.0+</span><span id="versionText">الإصدار 3.0.2</span><span id="sizeText">حجم خفيف</span><span class="download-stat" title="إجمالي تنزيلات ملفات APK لكل الإصدارات"><strong id="downloadCount">—</strong> تحميل حقيقي</span></div>
       </div>
       <div class="visual">
         <div class="glow"></div>
@@ -86,17 +86,17 @@
       </div>
     </div></section>
 
-    <section class="cta"><div class="wrap cta-box"><h2>جاهز لتجربة الفهد؟</h2><p>حمّل أحدث إصدار مجاناً على جهاز أندرويد.</p><a class="download-btn apk-link" href="https://github.com/merom2854-sketch/elfahd/releases/download/v3.0.1/Al-Fahd-TV-3.0.1.apk">تحميل الفهد TV الآن</a></div></section>
+    <section class="cta"><div class="wrap cta-box"><h2>جاهز لتجربة الفهد؟</h2><p>حمّل أحدث إصدار مجاناً على جهاز أندرويد.</p><a class="download-btn apk-link" href="https://github.com/merom2854-sketch/elfahd/releases/download/v3.0.2/Al-Fahd-TV-3.0.2.apk">تحميل الفهد TV الآن</a></div></section>
   </main>
 
-  <footer><div class="wrap footer-inner"><span>© 2026 الفهد TV — جميع الحقوق محفوظة</span><span><a href="https://t.me/elfahd_tv" target="_blank" rel="noopener" style="color:#42bff5;font-weight:800">✈ قناة تيليجرام</a> • الإصدار <b id="footerVersion">3.0.1</b> • Android 7.0 فأحدث</span></div></footer>
-  <a class="mobile-cta apk-link" href="https://github.com/merom2854-sketch/elfahd/releases/download/v3.0.1/Al-Fahd-TV-3.0.1.apk">↓ تحميل التطبيق</a>
+  <footer><div class="wrap footer-inner"><span>© 2026 الفهد TV — جميع الحقوق محفوظة</span><span><a href="https://t.me/elfahd_tv" target="_blank" rel="noopener" style="color:#42bff5;font-weight:800">✈ قناة تيليجرام</a> • الإصدار <b id="footerVersion">3.0.2</b> • Android 7.0 فأحدث</span></div></footer>
+  <a class="mobile-cta apk-link" href="https://github.com/merom2854-sketch/elfahd/releases/download/v3.0.2/Al-Fahd-TV-3.0.2.apk">↓ تحميل التطبيق</a>
   <script>
     const api='https://api.github.com/repos/merom2854-sketch/elfahd/releases/latest';
     fetch(api,{headers:{Accept:'application/vnd.github+json'}}).then(r=>r.ok?r.json():Promise.reject()).then(data=>{
       const asset=(data.assets||[]).find(x=>/\.apk$/i.test(x.name));if(!asset)return;
       document.querySelectorAll('.apk-link').forEach(link=>link.href=asset.browser_download_url);
-    const version=String(data.tag_name||'v3.0.1').replace(/^v/i,'');
+    const version=String(data.tag_name||'v3.0.2').replace(/^v/i,'');
       document.querySelector('#versionText').textContent='الإصدار '+version;document.querySelector('#footerVersion').textContent=version;
       document.querySelector('#sizeText').textContent=(asset.size/1048576).toFixed(1)+' MB';
     }).catch(()=>{});
