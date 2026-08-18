@@ -9,8 +9,8 @@ android {
         applicationId 'com.alfahdtv.app'
         minSdk 24
         targetSdk 34
-        versionCode 19
-        versionName '3.0.7'
+        versionCode 20
+        versionName '3.0.8'
         buildConfigField 'String', 'HOME_URL', '"https://elfahd-tv.vercel.app/#/home"'
         buildConfigField 'String', 'ALLOWED_HOST', '"elfahd-tv.vercel.app"'
     }

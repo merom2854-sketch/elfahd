@@ -120,19 +120,29 @@ class NativeCatalogRepository {
     }
 
     private fun request(url: String): JSONObject {
-        val connection = URL(url).openConnection() as HttpURLConnection
-        return try {
-            connection.connectTimeout = 12_000
-            connection.readTimeout = 18_000
-            connection.setRequestProperty("Accept", "application/json")
-            connection.setRequestProperty("User-Agent", "AlFahdTV/3.0 Android")
-            val stream = if (connection.responseCode in 200..299) connection.inputStream else connection.errorStream
-            val text = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-            if (connection.responseCode !in 200..299) error("HTTP ${connection.responseCode}")
-            JSONObject(text)
-        } finally {
-            connection.disconnect()
+        var lastError: Exception? = null
+        repeat(3) { attempt ->
+            val connection = URL(url).openConnection() as HttpURLConnection
+            try {
+                connection.connectTimeout = 10_000
+                connection.readTimeout = 18_000
+                connection.instanceFollowRedirects = true
+                connection.setRequestProperty("Accept", "application/json")
+                connection.setRequestProperty("Cache-Control", "no-cache")
+                connection.setRequestProperty("User-Agent", "AlFahdTV/3.0 Android")
+                val code = connection.responseCode
+                val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+                val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                if (code !in 200..299) error("HTTP $code")
+                return JSONObject(text)
+            } catch (error: Exception) {
+                lastError = error
+                if (attempt < 2) Thread.sleep(350L * (attempt + 1))
+            } finally {
+                connection.disconnect()
+            }
         }
+        throw lastError ?: IllegalStateException("Empty response")
     }
 
     private fun metadataActors(title: String, kind: CatalogKind): List<Actor> {
