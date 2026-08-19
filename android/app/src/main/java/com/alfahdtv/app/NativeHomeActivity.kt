@@ -211,6 +211,12 @@ private fun FahdApp(
     var movies by remember { mutableStateOf<List<CatalogItem>>(emptyList()) }
     var series by remember { mutableStateOf<List<CatalogItem>>(emptyList()) }
     var anime by remember { mutableStateOf<List<CatalogItem>>(emptyList()) }
+    var filteredMovies by remember { mutableStateOf<List<CatalogItem>>(emptyList()) }
+    var filteredSeries by remember { mutableStateOf<List<CatalogItem>>(emptyList()) }
+    var movieCategories by remember { mutableStateOf<List<SourceCategory>>(emptyList()) }
+    var seriesCategories by remember { mutableStateOf<List<SourceCategory>>(emptyList()) }
+    var selectedMovieCategory by remember { mutableStateOf<SourceCategory?>(null) }
+    var selectedSeriesCategory by remember { mutableStateOf<SourceCategory?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf(false) }
     var destination by remember { mutableStateOf(FahdDestination.HOME) }
@@ -218,6 +224,7 @@ private fun FahdApp(
     var searchOpen by remember { mutableStateOf(false) }
     var allKind by remember { mutableStateOf<CatalogKind?>(null) }
     var reloadKey by remember { mutableIntStateOf(0) }
+    val scope = rememberCoroutineScope()
     val resume = remember(storedResume, movies, series, anime) {
         storedResume?.let { saved ->
             if (saved.image.isNotBlank()) saved else {
@@ -237,11 +244,33 @@ private fun FahdApp(
                 val movieTask = async { repository.catalog(NativeCatalogRepository.MOVIES, CatalogKind.MOVIE) }
                 val seriesTask = async { repository.catalog(NativeCatalogRepository.SERIES, CatalogKind.SERIES) }
                 val animeTask = async { repository.anime() }
-                movies = movieTask.await(); series = seriesTask.await(); anime = animeTask.await()
+                val manualTask = async { repository.manualContent() }
+                val movieCategoriesTask = async { repository.categories(NativeCatalogRepository.MOVIES) }
+                val seriesCategoriesTask = async { repository.categories(NativeCatalogRepository.SERIES) }
+                val manual = manualTask.await()
+                movies = (manual.filter { it.kind == CatalogKind.MOVIE } + movieTask.await()).distinctBy { it.href }
+                series = (manual.filter { it.kind == CatalogKind.SERIES } + seriesTask.await()).distinctBy { it.href }
+                anime = (manual.filter { it.kind == CatalogKind.ANIME } + animeTask.await()).distinctBy { it.href }
+                filteredMovies = movies; filteredSeries = series
+                movieCategories = movieCategoriesTask.await(); seriesCategories = seriesCategoriesTask.await()
             }
             error = movies.isEmpty() && series.isEmpty()
         } catch (_: Exception) { error = true }
         loading = false
+    }
+
+    fun chooseCategory(kind: CatalogKind, category: SourceCategory?) {
+        scope.launch {
+            loading = true
+            if (kind == CatalogKind.MOVIE) {
+                selectedMovieCategory = category
+                filteredMovies = if (category == null) movies else repository.catalog(category.url, CatalogKind.MOVIE)
+            } else if (kind == CatalogKind.SERIES) {
+                selectedSeriesCategory = category
+                filteredSeries = if (category == null) series else repository.catalog(category.url, CatalogKind.SERIES)
+            }
+            loading = false
+        }
     }
 
     BackHandler(enabled = selected != null || searchOpen || allKind != null || destination != FahdDestination.HOME) {
@@ -288,8 +317,8 @@ private fun FahdApp(
                     CatalogGrid(title, content, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding())
                 }
                 destination == FahdDestination.HOME -> HomeScreen(movies, series, anime, resume, loading, error, onRetry = { reloadKey++ }, onSelect = { selected = it }, onResume = { resume?.let { onPlay(it.url, it.title, it.image) } }, onViewAll = { allKind = it }, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onTelegram = { onOpenExternal("https://t.me/elfahd_tv") }, contentBottomPadding = padding.calculateBottomPadding())
-                destination == FahdDestination.MOVIES -> CatalogGrid("الأفلام", movies, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding())
-                destination == FahdDestination.SERIES -> CatalogGrid("المسلسلات", series, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding())
+                destination == FahdDestination.MOVIES -> CatalogGrid("الأفلام", filteredMovies, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding(), movieCategories, selectedMovieCategory) { chooseCategory(CatalogKind.MOVIE, it) }
+                destination == FahdDestination.SERIES -> CatalogGrid("المسلسلات", filteredSeries, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding(), seriesCategories, selectedSeriesCategory) { chooseCategory(CatalogKind.SERIES, it) }
                 destination == FahdDestination.CHANNELS -> ChannelsScreen(onBack = { destination = FahdDestination.HOME }, onOpenExternal = onOpenExternal, bottomPadding = padding.calculateBottomPadding())
                 else -> LibraryScreen((movies + series + anime).distinctBy { it.href }, favoriteEntries, historyEntries, onSelect = { selected = it }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, bottomPadding = padding.calculateBottomPadding())
             }
@@ -459,12 +488,21 @@ private fun NativeTopBar(title: String, onSearch: (() -> Unit)?, onDownloads: ()
 }
 
 @Composable
-private fun CatalogGrid(title: String, content: List<CatalogItem>, loading: Boolean, onSearch: () -> Unit, onDownloads: () -> Unit, onSettings: () -> Unit, onSelect: (CatalogItem) -> Unit, bottomPadding: androidx.compose.ui.unit.Dp) {
+private fun CatalogGrid(title: String, content: List<CatalogItem>, loading: Boolean, onSearch: () -> Unit, onDownloads: () -> Unit, onSettings: () -> Unit, onSelect: (CatalogItem) -> Unit, bottomPadding: androidx.compose.ui.unit.Dp, categories: List<SourceCategory> = emptyList(), selectedCategory: SourceCategory? = null, onCategory: (SourceCategory?) -> Unit = {}) {
     Column(Modifier.fillMaxSize()) {
         NativeTopBar(title, onSearch, onDownloads, onSettings)
+        if (categories.isNotEmpty()) CategoryRow(categories, selectedCategory, onCategory)
         if (loading) LoadingBlock() else LazyVerticalGrid(columns = GridCells.Fixed(3), modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 14.dp, bottom = bottomPadding + 18.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(17.dp)) {
             items(content, key = { it.href }) { PosterCard(it, onSelect) }
         }
+    }
+}
+
+@Composable
+private fun CategoryRow(categories: List<SourceCategory>, selected: SourceCategory?, onSelect: (SourceCategory?) -> Unit) {
+    LazyRow(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        item { Surface(color = if (selected == null) FahdColors.Red else FahdColors.SurfaceHigh, shape = RoundedCornerShape(18.dp), modifier = Modifier.clickable { onSelect(null) }) { Text("الكل", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 15.dp, vertical = 9.dp)) } }
+        items(categories, key = { it.id }) { category -> Surface(color = if (selected?.id == category.id) FahdColors.Red else FahdColors.SurfaceHigh, shape = RoundedCornerShape(18.dp), modifier = Modifier.clickable { onSelect(category) }) { Text(category.title, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 15.dp, vertical = 9.dp)) } }
     }
 }
 

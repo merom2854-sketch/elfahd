@@ -19,6 +19,7 @@ data class CatalogItem(
 
 data class Episode(val number: String, val link: String)
 data class Actor(val name: String, val image: String)
+data class SourceCategory(val id: String, val title: String, val url: String)
 
 data class ContentDetail(
     val title: String,
@@ -32,6 +33,7 @@ class NativeCatalogRepository {
     companion object {
         private const val WORKER = "https://akwam-stream-fetcher.meroo3292.workers.dev/"
         private const val METADATA_API = "https://al-fahd-api-production.up.railway.app/v1/metadata"
+        private const val MANUAL_API = "https://al-fahd-api-production.up.railway.app/v1/content/manual"
         const val MOVIES = "https://akwam.it/movies"
         const val SERIES = "https://akwam.it/series"
         const val ANIME_MOVIES = "https://akwam.it/movies?category=30&section=0"
@@ -66,6 +68,37 @@ class NativeCatalogRepository {
         val movies = catalog(ANIME_MOVIES, CatalogKind.ANIME, limit)
         val series = catalog(ANIME_SERIES, CatalogKind.ANIME, limit)
         return (movies + series).distinctBy { it.href }.take(limit)
+    }
+
+    suspend fun manualContent(): List<CatalogItem> = withContext(Dispatchers.IO) {
+        val data = runCatching { request(MANUAL_API).optJSONArray("data") }.getOrNull() ?: return@withContext emptyList()
+        buildList {
+            for (index in 0 until data.length()) {
+                val value = data.optJSONObject(index) ?: continue
+                val title = value.optString("title").trim()
+                val href = workerUrl(value.optString("href"))
+                val image = highResolutionPoster(value.optString("image", value.optString("img")).trim())
+                val kind = when (value.optString("kind").lowercase()) {
+                    "series", "tv" -> CatalogKind.SERIES
+                    "anime" -> CatalogKind.ANIME
+                    else -> CatalogKind.MOVIE
+                }
+                if (title.isNotBlank() && href.startsWith("https://")) add(CatalogItem(title, href, image, kind))
+            }
+        }
+    }
+
+    suspend fun categories(source: String): List<SourceCategory> = withContext(Dispatchers.IO) {
+        runCatching {
+            val base = source.substringBefore('?')
+            val html = fetchPage(base)
+            Regex("""<option\s+value=[\"'](\d+)[\"'][^>]*>([\s\S]*?)</option>""", RegexOption.IGNORE_CASE)
+                .findAll(html)
+                .map { SourceCategory(it.groupValues[1], plainText(it.groupValues[2]), "$base?category=${it.groupValues[1]}&section=0") }
+                .filter { it.id != "0" && it.title.isNotBlank() }
+                .distinctBy { it.id }
+                .toList()
+        }.getOrDefault(emptyList())
     }
 
     suspend fun search(query: String, limit: Int = 30): List<CatalogItem> = withContext(Dispatchers.IO) {

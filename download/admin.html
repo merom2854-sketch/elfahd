@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>إدارة محتوى الفهد TV</title>
+<style>body{margin:0;background:#0b0d12;color:#fff;font-family:Arial,sans-serif;padding:24px}main{max-width:720px;margin:auto;background:#151923;border-radius:20px;padding:22px}h1{margin-top:0}label{display:block;margin:12px 0 6px;color:#aeb4c2}input,select,button{box-sizing:border-box;width:100%;padding:13px;border:1px solid #323848;border-radius:10px;background:#0f1219;color:#fff;font-size:15px}button{background:#ef233c;border:0;font-weight:700;cursor:pointer;margin-top:16px}.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.item{border-top:1px solid #303644;padding:14px 0;display:flex;gap:12px;align-items:center}.item img{width:48px;height:68px;object-fit:cover;border-radius:7px}.item button{width:auto;background:#323848;margin:0;padding:8px 12px}.muted{color:#9aa1b2;font-size:13px}.status{margin-top:14px;color:#61e294}</style>
+<main><h1>إدارة محتوى الفهد TV</h1><p class="muted">أدخل رمز الإدارة ثم أضف فيلمًا أو مسلسلًا من نفس المصدر. لا تضع الرمز داخل التطبيق أو في مستودع عام.</p>
+<label>رابط API</label><input id="api" value="https://al-fahd-api-production.up.railway.app">
+<label>رمز الإدارة</label><input id="token" type="password" autocomplete="off">
+<label>اسم العمل</label><input id="title" placeholder="مثال: فيلم جديد">
+<div class="row"><div><label>رابط صفحة المصدر</label><input id="href" placeholder="https://akwam.it/movie/..." /></div><div><label>رابط الصورة</label><input id="image" placeholder="https://img.downet.net/..." /></div></div>
+<div class="row"><div><label>النوع</label><select id="kind"><option value="movie">فيلم</option><option value="series">مسلسل</option><option value="anime">أنمي</option></select></div><div><label>التصنيف</label><input id="category" placeholder="أكشن / عربي / أجنبي" /></div></div>
+<label><input id="featured" type="checkbox" style="width:auto"> يظهر في الرئيسية</label><button onclick="save()">إضافة المحتوى</button><div id="status" class="status"></div><h2>المحتوى اليدوي</h2><div id="list" class="muted">جار التحميل…</div>
+<h2>إرسال إشعار</h2><label>عنوان الإشعار</label><input id="noticeTitle" placeholder="فيلم جديد متاح الآن"><label>نص الإشعار</label><input id="noticeBody" placeholder="شاهد أحدث الإضافات على الفهد TV"><label>رابط داخلي اختياري</label><input id="deepLink" placeholder="رابط الفيلم أو القسم"><button onclick="notify()">إرسال الإشعار</button>
+</main>
+<script>
+const $=id=>document.getElementById(id), headers=()=>({'Content-Type':'application/json','Authorization':'Bearer '+$('token').value.trim()});
+async function load(){try{const r=await fetch($('api').value+'/v1/content/manual');const j=await r.json();$('list').innerHTML=(j.data||[]).map(x=>`<div class="item"><img src="${x.image||''}"><div style="flex:1"><b>${x.title}</b><div class="muted">${x.kind} · ${x.category||'بدون تصنيف'}</div></div><button onclick="removeItem('${x.id}')">حذف</button></div>`).join('')||'<p>لا يوجد محتوى يدوي</p>'}catch(e){$('list').textContent='تعذر تحميل المحتوى'}}
+async function save(){const payload={title:$('title').value,href:$('href').value,image:$('image').value,kind:$('kind').value,category:$('category').value,featured:$('featured').checked};const r=await fetch($('api').value+'/v1/content/manual',{method:'POST',headers:headers(),body:JSON.stringify(payload)});const j=await r.json();$('status').textContent=j.status==='success'?'تمت الإضافة':'فشل: '+(j.message||'تحقق من البيانات');if(j.status==='success'){['title','href','image','category'].forEach(id=>$(id).value='');load()}}
+async function removeItem(id){if(!confirm('حذف هذا المحتوى؟'))return;await fetch($('api').value+'/v1/content/manual/'+encodeURIComponent(id),{method:'DELETE',headers:headers()});load()}
+async function notify(){const r=await fetch($('api').value+'/v1/admin/notifications',{method:'POST',headers:headers(),body:JSON.stringify({title:$('noticeTitle').value,body:$('noticeBody').value,deepLink:$('deepLink').value})});const j=await r.json();$('status').textContent=j.status==='success'?'تم إرسال الإشعار':'فشل إرسال الإشعار: '+(j.message||'تحقق من إعدادات FCM')}
+load();
+</script>
