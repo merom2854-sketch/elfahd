@@ -45,7 +45,7 @@ class NativeCatalogRepository {
             for (index in 0 until data.length()) {
                 val value = data.optJSONObject(index) ?: continue
                 val title = value.optString("title").trim()
-                val href = value.optString("href").trim()
+                val href = workerUrl(value.optString("href"))
                 val image = value.optString("img").trim()
                 if (title.isBlank() || href.isBlank() || !href.startsWith("https://") || !seen.add(href) || isNoise(title)) continue
                 add(CatalogItem(title, href, highResolutionPoster(image), kind))
@@ -70,7 +70,7 @@ class NativeCatalogRepository {
             for (index in 0 until data.length()) {
                 val value = data.optJSONObject(index) ?: continue
                 val title = value.optString("title").trim()
-                val href = value.optString("href").trim()
+                val href = workerUrl(value.optString("href"))
                 val image = value.optString("img").trim()
                 if (title.isBlank() || !href.startsWith("https://") || !seen.add(href) || isNoise(title)) continue
                 val kind = when {
@@ -85,12 +85,12 @@ class NativeCatalogRepository {
     }
 
     suspend fun detail(item: CatalogItem): ContentDetail = withContext(Dispatchers.IO) {
-        val parsed = parseDetail(request("$WORKER?action=series&series=${encode(item.href)}"), item.title)
+        val parsed = parseDetail(request("$WORKER?action=series&series=${encode(workerUrl(item.href))}"), item.title)
         if (parsed.actors.isNotEmpty()) parsed else parsed.copy(actors = metadataActors(item.title, item.kind))
     }
 
     suspend fun episode(link: String, fallbackTitle: String): ContentDetail = withContext(Dispatchers.IO) {
-        parseDetail(request("$WORKER?action=series&series=${encode(link)}"), fallbackTitle)
+        parseDetail(request("$WORKER?action=series&series=${encode(workerUrl(link))}"), fallbackTitle)
     }
 
     private fun parseDetail(payload: JSONObject, fallbackTitle: String): ContentDetail {
@@ -155,6 +155,7 @@ class NativeCatalogRepository {
     }
 
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
+    private fun workerUrl(value: String): String = value.trim().replaceFirst(Regex("^https://ak\\.sv/", RegexOption.IGNORE_CASE), "https://akwam.it/")
     private fun isNoise(title: String): Boolean = title.equals("اكوام", true) || title.contains("web stats", true) || title.contains("إشعارات اكوام")
     private fun highResolutionPoster(value: String): String = value.replace(Regex("/thumb/\\d+x\\d+/"), "/")
     private fun compatibleMediaUrl(value: String): String {
