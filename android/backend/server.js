@@ -10,11 +10,13 @@ const FOOTBALL_API_KEY = process.env.FOOTBALL_API_KEY || '';
 const TMDB_READ_TOKEN = process.env.TMDB_READ_TOKEN || '';
 const CONTENT_FILE = path.join(process.cwd(), 'manual-content.json');
 const DEVICES_FILE = path.join(process.cwd(), 'devices.json');
+const NOTIFICATIONS_FILE = path.join(process.cwd(), 'notifications.json');
 const FCM_SERVER_KEY = process.env.FCM_SERVER_KEY || '';
 const buckets = new Map();
 let downloadStatsCache = { expires: 0, data: null };
 let manualContent = [];
 let devices = [];
+let notifications = [];
 
 try {
   manualContent = JSON.parse(await readFile(CONTENT_FILE, 'utf8'));
@@ -24,11 +26,15 @@ try {
   devices = JSON.parse(await readFile(DEVICES_FILE, 'utf8'));
   if (!Array.isArray(devices)) devices = [];
 } catch { devices = []; }
+try {
+  notifications = JSON.parse(await readFile(NOTIFICATIONS_FILE, 'utf8'));
+  if (!Array.isArray(notifications)) notifications = [];
+} catch { notifications = []; }
 
 const baseConfig = Object.freeze({
   appName: 'الفهد TV', packageName: 'com.alfahdtv.app.debug', homeUrl: HOME_URL,
-  minimumVersionCode: 1, latestVersionCode: 25, latestVersionName: '3.4.0',
-  apkUrl: 'https://github.com/merom2854-sketch/elfahd/releases/download/v3.4.0/Al-Fahd-TV-3.4.0.apk',
+  minimumVersionCode: 1, latestVersionCode: 26, latestVersionName: '3.5.0',
+  apkUrl: 'https://github.com/merom2854-sketch/elfahd/releases/download/v3.5.0/Al-Fahd-TV-3.5.0.apk',
   maintenance: false, maintenanceMessage: '',
   features: { downloads: true, fullscreenVideo: true, pictureInPicture: true, anime: true, channels: true, secureScreens: true }
 });
@@ -47,6 +53,7 @@ function authorized(req){if(!ADMIN_TOKEN)return false;const supplied=String(req.
 function readBody(req){return new Promise((resolve,reject)=>{let body='';req.on('data',chunk=>{body+=chunk;if(body.length>256_000)reject(new Error('Body too large'));});req.on('end',()=>resolve(body));req.on('error',reject);});}
 async function saveManualContent(){await writeFile(CONTENT_FILE,JSON.stringify(manualContent,null,2),'utf8');}
 async function saveDevices(){await writeFile(DEVICES_FILE,JSON.stringify(devices,null,2),'utf8');}
+async function saveNotifications(){await writeFile(NOTIFICATIONS_FILE,JSON.stringify(notifications,null,2),'utf8');}
 function normalizeManual(item){const title=String(item.title||'').trim();const href=String(item.href||'').trim();const image=String(item.image||item.img||'').trim();const kind=['movie','series','anime'].includes(item.kind)?item.kind:'movie';const category=String(item.category||'').trim();if(!title||!/^https:\/\//i.test(href))throw new Error('title and https href are required');return {id:String(item.id||crypto.randomUUID()),title,href,image,kind,category,featured:Boolean(item.featured),createdAt:item.createdAt||new Date().toISOString()};}
 async function sendPush(title,body,deepLink=''){
   if(!FCM_SERVER_KEY)throw new Error('FCM_SERVER_KEY is not configured');
@@ -54,6 +61,13 @@ async function sendPush(title,body,deepLink=''){
   const upstream=await fetch('https://fcm.googleapis.com/fcm/send',{method:'POST',headers:{Authorization:`key=${FCM_SERVER_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({registration_ids:tokens,notification:{title,body,sound:'default'},data:{deepLink}})});
   if(!upstream.ok)throw new Error('FCM request failed');
   const result=await upstream.json();return {sent:Number(result.success)||0,failed:Number(result.failure)||0};
+}
+async function publishNotification(title,body,deepLink=''){
+  const item={id:crypto.randomUUID(),title,body,deepLink,createdAt:new Date().toISOString()};
+  notifications=[item,...notifications].slice(0,100);await saveNotifications();
+  let push={sent:0,failed:0,configured:false};
+  if(FCM_SERVER_KEY){push={...(await sendPush(title,body,deepLink)),configured:true};}
+  return {notification:item,push};
 }
 async function fallbackFootball(date){const upstream=await fetch(`https://www.thesportsdb.com/api/v1/json/123/eventsday.php?d=${encodeURIComponent(date)}&s=Soccer`);if(!upstream.ok)throw new Error('Football fallback unavailable');const payload=await upstream.json();return (payload.events||[]).map(item=>({id:item.idEvent,date:item.strTimestamp||`${item.dateEvent}T${item.strTime||'00:00:00'}Z`,status:item.strStatus||'Not Started',elapsed:null,league:{name:item.strLeague||'',country:item.strCountry||'',logo:item.strLeagueBadge||''},home:{name:item.strHomeTeam||'',logo:item.strHomeTeamBadge||'',score:item.intHomeScore==null?null:Number(item.intHomeScore)},away:{name:item.strAwayTeam||'',logo:item.strAwayTeamBadge||'',score:item.intAwayScore==null?null:Number(item.intAwayScore)}}));}
 async function footballMatches(date){if(FOOTBALL_API_KEY){try{const upstream=await fetch(`https://v3.football.api-sports.io/fixtures?date=${encodeURIComponent(date)}`,{headers:{'x-apisports-key':FOOTBALL_API_KEY}});const payload=await upstream.json();if(upstream.ok&&!(payload.errors&&Object.keys(payload.errors).length))return (payload.response||[]).map(item=>({id:item.fixture?.id,date:item.fixture?.date,status:item.fixture?.status?.long||'',elapsed:item.fixture?.status?.elapsed,league:{name:item.league?.name||'',country:item.league?.country||'',logo:item.league?.logo||''},home:{name:item.teams?.home?.name||'',logo:item.teams?.home?.logo||'',score:item.goals?.home},away:{name:item.teams?.away?.name||'',logo:item.teams?.away?.logo||'',score:item.goals?.away}}));}catch{}}
@@ -67,10 +81,11 @@ const server=http.createServer((req,res)=>{
   if(req.method==='OPTIONS')return send(res,204,{},cors(req));
   if(req.method==='GET'&&req.url==='/health')return send(res,200,{status:'ok',service:'al-fahd-tv-backend'},cors(req));
   if(req.method==='GET'&&req.url==='/v1/config')return send(res,200,{status:'success',data:baseConfig},cors(req));
+  if(req.method==='GET'&&req.url==='/v1/notifications/latest')return send(res,200,{status:'success',data:notifications[0]||null},cors(req));
   if(req.method==='POST'&&req.url==='/v1/devices/register')return readBody(req).then(raw=>{const value=JSON.parse(raw);const token=String(value.token||'').trim();if(!token||token.length>4096)throw new Error('Invalid token');devices=[{token,platform:String(value.platform||'android'),updatedAt:new Date().toISOString()},...devices.filter(item=>item.token!==token)].slice(0,100_000);return saveDevices().then(()=>send(res,200,{status:'success'},cors(req)));}).catch(()=>send(res,400,{status:'error',message:'Invalid device token'},cors(req)));
   if(req.method==='POST'&&req.url==='/v1/admin/notifications'){
     if(!authorized(req))return send(res,401,{status:'error',message:'Unauthorized'},cors(req));
-    return readBody(req).then(raw=>{const value=JSON.parse(raw);const title=String(value.title||'').trim();const body=String(value.body||'').trim();if(!title||!body)throw new Error('Title and body are required');return sendPush(title,body,String(value.deepLink||'')).then(result=>send(res,200,{status:'success',data:result},cors(req)));}).catch(error=>send(res,503,{status:'error',message:error.message||'Notification service unavailable'},cors(req)));
+    return readBody(req).then(raw=>{const value=JSON.parse(raw);const title=String(value.title||'').trim();const body=String(value.body||'').trim();if(!title||!body)throw new Error('Title and body are required');return publishNotification(title,body,String(value.deepLink||'')).then(result=>send(res,200,{status:'success',data:result},cors(req)));}).catch(error=>send(res,400,{status:'error',message:error.message||'Notification service unavailable'},cors(req)));
   }
   if(req.method==='GET'&&req.url==='/v1/content/manual')return send(res,200,{status:'success',data:manualContent},cors(req));
   if(req.method==='POST'&&req.url==='/v1/content/manual'){

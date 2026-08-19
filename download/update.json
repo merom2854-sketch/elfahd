@@ -1,6 +1,6 @@
 {
-  "version": "3.4.0",
-  "versionCode": 25,
-  "apkUrl": "https://github.com/merom2854-sketch/elfahd/releases/download/v3.4.0/Al-Fahd-TV-3.4.0.apk",
-  "releaseNotes": "محتوى يدوي وتصنيفات وإدارة إشعارات من لوحة التحكم"
+  "version": "3.5.0",
+  "versionCode": 26,
+  "apkUrl": "https://github.com/merom2854-sketch/elfahd/releases/download/v3.5.0/Al-Fahd-TV-3.5.0.apk",
+  "releaseNotes": "إشعارات إدارية عبر موجّه التحديث مع دعم Firebase الاختياري"
 }
