@@ -1,6 +1,6 @@
 {
-  "version": "3.2.0",
-  "versionCode": 23,
-  "apkUrl": "https://github.com/merom2854-sketch/elfahd/releases/download/v3.2.0/Al-Fahd-TV-3.2.0.apk",
-  "releaseNotes": "تفعيل زرّي المشاهدة والتحميل واستخراج رابط الفيديو تلقائيًا"
+  "version": "3.3.0",
+  "versionCode": 24,
+  "apkUrl": "https://github.com/merom2854-sketch/elfahd/releases/download/v3.3.0/Al-Fahd-TV-3.3.0.apk",
+  "releaseNotes": "طبقة حماية للمصدر مع كاش وإعادة محاولة وخطة احتياطية"
 }

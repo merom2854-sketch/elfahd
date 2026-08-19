@@ -6,6 +6,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.HashMap
 
 enum class CatalogKind { MOVIE, SERIES, ANIME }
 
@@ -35,13 +36,20 @@ class NativeCatalogRepository {
         const val SERIES = "https://akwam.it/series"
         const val ANIME_MOVIES = "https://akwam.it/movies?category=30&section=0"
         const val ANIME_SERIES = "https://akwam.it/series?category=30&section=0"
+        private const val CACHE_TTL_MS = 5L * 60L * 1000L
+        private val responseCache = HashMap<String, Pair<Long, String>>()
     }
 
     suspend fun catalog(source: String, kind: CatalogKind, limit: Int = 30): List<CatalogItem> = withContext(Dispatchers.IO) {
-        val payload = request("$WORKER?action=genre&genre=${encode(source)}")
-        val data = payload.optJSONArray("data") ?: return@withContext emptyList()
+        val payload = runCatching { request("$WORKER?action=genre&genre=${encode(source)}") }.getOrNull()
+        val data = payload?.optJSONArray("data")
+        if (data == null || data.length() == 0) return@withContext fallbackCatalog(source, kind, limit)
+        return@withContext itemsFromJson(data, kind, limit)
+    }
+
+    private fun itemsFromJson(data: org.json.JSONArray, kind: CatalogKind, limit: Int): List<CatalogItem> {
         val seen = HashSet<String>()
-        buildList {
+        return buildList {
             for (index in 0 until data.length()) {
                 val value = data.optJSONObject(index) ?: continue
                 val title = value.optString("title").trim()
@@ -63,36 +71,25 @@ class NativeCatalogRepository {
     suspend fun search(query: String, limit: Int = 30): List<CatalogItem> = withContext(Dispatchers.IO) {
         val clean = query.trim()
         if (clean.length < 2) return@withContext emptyList()
-        val payload = request("$WORKER?action=search&q=${encode(clean)}&p=1")
-        val data = payload.optJSONArray("data") ?: return@withContext emptyList()
-        val seen = HashSet<String>()
-        buildList {
-            for (index in 0 until data.length()) {
-                val value = data.optJSONObject(index) ?: continue
-                val title = value.optString("title").trim()
-                val href = workerUrl(value.optString("href"))
-                val image = value.optString("img").trim()
-                if (title.isBlank() || !href.startsWith("https://") || !seen.add(href) || isNoise(title)) continue
-                val kind = when {
-                    href.contains("/series/") -> CatalogKind.SERIES
-                    title.contains("أنمي", ignoreCase = true) -> CatalogKind.ANIME
-                    else -> CatalogKind.MOVIE
-                }
-                add(CatalogItem(title, href, highResolutionPoster(image), kind))
-                if (size >= limit) break
-            }
-        }
+        val payload = runCatching { request("$WORKER?action=search&q=${encode(clean)}&p=1") }.getOrNull()
+        val data = payload?.optJSONArray("data")
+        if (data != null && data.length() > 0) return@withContext itemsFromJson(data, CatalogKind.MOVIE, limit)
+        return@withContext fallbackCatalog("https://akwam.it/search?q=${encode(clean)}", CatalogKind.MOVIE, limit)
     }
 
     suspend fun detail(item: CatalogItem): ContentDetail = withContext(Dispatchers.IO) {
-        val parsed = parseDetail(request("$WORKER?action=series&series=${encode(workerUrl(item.href))}"), item.title)
+        val parsed = runCatching {
+            parseDetail(request("$WORKER?action=series&series=${encode(workerUrl(item.href))}"), item.title)
+        }.getOrElse { fallbackDetail(item.href, item.title) }
         val playable = if (parsed.mediaUrl.isBlank() && item.kind == CatalogKind.MOVIE) resolveMediaUrl(item.href) else parsed.mediaUrl
         val resolved = if (playable == parsed.mediaUrl) parsed else parsed.copy(mediaUrl = playable)
         if (resolved.actors.isNotEmpty()) resolved else resolved.copy(actors = metadataActors(item.title, item.kind))
     }
 
     suspend fun episode(link: String, fallbackTitle: String): ContentDetail = withContext(Dispatchers.IO) {
-        val parsed = parseDetail(request("$WORKER?action=series&series=${encode(workerUrl(link))}"), fallbackTitle)
+        val parsed = runCatching {
+            parseDetail(request("$WORKER?action=series&series=${encode(workerUrl(link))}"), fallbackTitle)
+        }.getOrElse { fallbackDetail(link, fallbackTitle) }
         if (parsed.mediaUrl.isNotBlank()) parsed else parsed.copy(mediaUrl = resolveMediaUrl(link))
     }
 
@@ -123,6 +120,12 @@ class NativeCatalogRepository {
     }
 
     private fun request(url: String): JSONObject {
+        val now = System.currentTimeMillis()
+        synchronized(responseCache) {
+            val cached = responseCache[url]
+            if (cached != null && cached.first > now) return JSONObject(cached.second)
+            if (cached != null) responseCache.remove(url)
+        }
         var lastError: Exception? = null
         repeat(3) { attempt ->
             val connection = URL(url).openConnection() as HttpURLConnection
@@ -137,6 +140,10 @@ class NativeCatalogRepository {
                 val stream = if (code in 200..299) connection.inputStream else connection.errorStream
                 val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
                 if (code !in 200..299) error("HTTP $code")
+                synchronized(responseCache) {
+                    responseCache[url] = System.currentTimeMillis() + CACHE_TTL_MS to text
+                    while (responseCache.size > 32) responseCache.remove(responseCache.keys.first())
+                }
                 return JSONObject(text)
             } catch (error: Exception) {
                 lastError = error
@@ -147,6 +154,53 @@ class NativeCatalogRepository {
         }
         throw lastError ?: IllegalStateException("Empty response")
     }
+
+    private fun fallbackCatalog(source: String, kind: CatalogKind, limit: Int): List<CatalogItem> {
+        return runCatching { parseCatalogPage(fetchPage(source), kind, limit) }.getOrDefault(emptyList())
+    }
+
+    private fun parseCatalogPage(html: String, kind: CatalogKind, limit: Int): List<CatalogItem> {
+        val cards = Regex(
+            """<a\s+href=[\"'](https?://(?:ak\.sv|akwam\.it)/(?:movie|series)/[^\"']+)[\"'][^>]*class=[\"'][^\"']*\bbox\b[^\"']*[\"'][\s\S]*?</h3>""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+        )
+        val seen = HashSet<String>()
+        return buildList {
+            for (match in cards.findAll(html)) {
+                val href = workerUrl(match.groupValues[1])
+                val title = Regex("""<h3[^>]*>\s*<a[^>]*>([\s\S]*?)</a>""", RegexOption.IGNORE_CASE)
+                    .find(match.value)?.groupValues?.get(1)?.let(::plainText).orEmpty()
+                val image = Regex("""(?:data-src|src|xlink:href)=[\"'](https?://[^\"']+)[\"']""", RegexOption.IGNORE_CASE)
+                    .findAll(match.value).map { it.groupValues[1] }
+                    .firstOrNull { !it.contains("placeholder", true) && !it.contains("logo", true) }.orEmpty()
+                if (title.isNotBlank() && href.isNotBlank() && seen.add(href) && !isNoise(title)) {
+                    add(CatalogItem(title, href, highResolutionPoster(image), kind))
+                    if (size >= limit) break
+                }
+            }
+        }
+    }
+
+    private fun fallbackDetail(url: String, fallbackTitle: String): ContentDetail {
+        val html = fetchPage(workerUrl(url))
+        val title = Regex("""<h1[^>]*>([\s\S]*?)</h1>""", RegexOption.IGNORE_CASE)
+            .find(html)?.groupValues?.get(1)?.let(::plainText)?.ifBlank { fallbackTitle } ?: fallbackTitle
+        val description = Regex("""<meta[^>]+name=[\"']description[\"'][^>]+content=[\"']([^\"']*)[\"']""", RegexOption.IGNORE_CASE)
+            .find(html)?.groupValues?.get(1)?.let(::plainText).orEmpty()
+        val episodes = buildList {
+            val seen = HashSet<String>()
+            for (match in Regex("""href=[\"'](https?://(?:ak\.sv|akwam\.it)/episode/[^\"']+)[\"']""", RegexOption.IGNORE_CASE).findAll(html)) {
+                val link = workerUrl(match.groupValues[1])
+                if (seen.add(link)) add(Episode("${size + 1}", link))
+            }
+        }
+        return ContentDetail(title, description, "", episodes, emptyList())
+    }
+
+    private fun plainText(value: String): String = value
+        .replace(Regex("<[^>]+>"), " ")
+        .replace("&amp;", "&").replace("&quot;", "\"").replace("&#039;", "'")
+        .replace(Regex("\\s+"), " ").trim()
 
     private fun metadataActors(title: String, kind: CatalogKind): List<Actor> {
         return runCatching {
@@ -167,18 +221,25 @@ class NativeCatalogRepository {
         compatibleMediaUrl(source)
     }.getOrDefault("")
     private fun fetchPage(url: String): String {
-        val connection = URL(url).openConnection() as HttpURLConnection
-        return try {
-            connection.connectTimeout = 10_000
-            connection.readTimeout = 18_000
-            connection.instanceFollowRedirects = true
-            connection.setRequestProperty("Accept", "text/html,application/xhtml+xml")
-            connection.setRequestProperty("Cache-Control", "no-cache")
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36")
-            val code = connection.responseCode
-            if (code !in 200..299) error("HTTP $code")
-            connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-        } finally { connection.disconnect() }
+        var lastError: Exception? = null
+        repeat(3) { attempt ->
+            val connection = URL(url).openConnection() as HttpURLConnection
+            try {
+                connection.connectTimeout = 10_000
+                connection.readTimeout = 18_000
+                connection.instanceFollowRedirects = true
+                connection.setRequestProperty("Accept", "text/html,application/xhtml+xml")
+                connection.setRequestProperty("Cache-Control", "no-cache")
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36")
+                val code = connection.responseCode
+                if (code !in 200..299) error("HTTP $code")
+                return connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            } catch (error: Exception) {
+                lastError = error
+                if (attempt < 2) Thread.sleep(350L * (attempt + 1))
+            } finally { connection.disconnect() }
+        }
+        throw lastError ?: IllegalStateException("Empty page")
     }
     private fun isNoise(title: String): Boolean = title.equals("اكوام", true) || title.contains("web stats", true) || title.contains("إشعارات اكوام")
     private fun highResolutionPoster(value: String): String = value.replace(Regex("/thumb/\\d+x\\d+/"), "/")
