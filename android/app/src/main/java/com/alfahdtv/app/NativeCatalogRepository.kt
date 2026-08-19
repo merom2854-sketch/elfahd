@@ -86,11 +86,14 @@ class NativeCatalogRepository {
 
     suspend fun detail(item: CatalogItem): ContentDetail = withContext(Dispatchers.IO) {
         val parsed = parseDetail(request("$WORKER?action=series&series=${encode(workerUrl(item.href))}"), item.title)
-        if (parsed.actors.isNotEmpty()) parsed else parsed.copy(actors = metadataActors(item.title, item.kind))
+        val playable = if (parsed.mediaUrl.isBlank() && item.kind == CatalogKind.MOVIE) resolveMediaUrl(item.href) else parsed.mediaUrl
+        val resolved = if (playable == parsed.mediaUrl) parsed else parsed.copy(mediaUrl = playable)
+        if (resolved.actors.isNotEmpty()) resolved else resolved.copy(actors = metadataActors(item.title, item.kind))
     }
 
     suspend fun episode(link: String, fallbackTitle: String): ContentDetail = withContext(Dispatchers.IO) {
-        parseDetail(request("$WORKER?action=series&series=${encode(workerUrl(link))}"), fallbackTitle)
+        val parsed = parseDetail(request("$WORKER?action=series&series=${encode(workerUrl(link))}"), fallbackTitle)
+        if (parsed.mediaUrl.isNotBlank()) parsed else parsed.copy(mediaUrl = resolveMediaUrl(link))
     }
 
     private fun parseDetail(payload: JSONObject, fallbackTitle: String): ContentDetail {
@@ -156,6 +159,27 @@ class NativeCatalogRepository {
 
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
     private fun workerUrl(value: String): String = value.trim().replaceFirst(Regex("^https://ak\\.sv/", RegexOption.IGNORE_CASE), "https://akwam.it/")
+    private fun resolveMediaUrl(value: String): String = runCatching {
+        val page = fetchPage(workerUrl(value))
+        val watch = Regex("href\\s*=\\s*[\\\"'](https?://(?:ak\\.sv|akwam\\.it)/watch/[^\\\"']+)[\\\"']", RegexOption.IGNORE_CASE).find(page)?.groupValues?.get(1) ?: return@runCatching ""
+        val watchPage = fetchPage(watch)
+        val source = Regex("<source[^>]+src\\s*=\\s*[\\\"']([^\\\"']+)[\\\"']", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)).find(watchPage)?.groupValues?.get(1) ?: return@runCatching ""
+        compatibleMediaUrl(source)
+    }.getOrDefault("")
+    private fun fetchPage(url: String): String {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        return try {
+            connection.connectTimeout = 10_000
+            connection.readTimeout = 18_000
+            connection.instanceFollowRedirects = true
+            connection.setRequestProperty("Accept", "text/html,application/xhtml+xml")
+            connection.setRequestProperty("Cache-Control", "no-cache")
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36")
+            val code = connection.responseCode
+            if (code !in 200..299) error("HTTP $code")
+            connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        } finally { connection.disconnect() }
+    }
     private fun isNoise(title: String): Boolean = title.equals("اكوام", true) || title.contains("web stats", true) || title.contains("إشعارات اكوام")
     private fun highResolutionPoster(value: String): String = value.replace(Regex("/thumb/\\d+x\\d+/"), "/")
     private fun compatibleMediaUrl(value: String): String {
