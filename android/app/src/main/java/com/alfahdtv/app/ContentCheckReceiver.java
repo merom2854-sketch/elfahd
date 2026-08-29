@@ -53,7 +53,7 @@ public final class ContentCheckReceiver extends BroadcastReceiver {
                     SharedPreferences preferences = context.getSharedPreferences("content", 0);
                     String old = preferences.getString("notification_id", "");
                     preferences.edit().putString("notification_id", id).apply();
-                    if (old.isEmpty() || old.equals(id)) return false;
+                    if (old.equals(id)) return false;
                     notify(context, data.optString("title", "الفهد TV"), data.optString("body", "إضافة جديدة متاحة الآن"));
                     return true;
                 } finally { connection.disconnect(); }

@@ -40,7 +40,7 @@
     const WORKER='https://akwam-stream-fetcher.meroo3292.workers.dev/';
     const SOURCES={movies:'https://akwam.it/movies',series:'https://akwam.it/series',arabic:'https://akwam.it/movies?section=29',animeMovies:'https://akwam.it/movies?category=30&section=0',animeSeries:'https://akwam.it/series?category=30&section=0'};
     const badTitle=/^(اكوام|إشعارات اكوام|موقع اكوام القديم|web stats)$/i;
-    const safe=v=>{try{const u=new URL(v);return u.protocol==='https:'?u.href:''}catch{return''}};
+    const safe=v=>{try{const u=new URL(v);if(u.protocol!=='https:')return'';if(u.hostname.toLowerCase()==='akwam.ss'||u.hostname.toLowerCase()==='ak.sv')u.hostname='akwam.it';return u.href}catch{return''}};
     const posterUrl=v=>{const clean=safe(v);if(!clean)return'';try{const u=new URL(clean);if(u.hostname==='img.downet.net'||u.hostname.endsWith('.downet.net'))u.pathname=u.pathname.replace(/^\/thumb\/\d+x\d+\//,'/');return u.href}catch{return clean}};
     const escapeHtml=v=>String(v||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const catalogs={movies:[],series:[]};let currentMedia='',currentDownload='',currentTitle='',featuredIndex=0,featuredTimer=null;

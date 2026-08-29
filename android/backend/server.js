@@ -34,8 +34,8 @@ try {
 
 const baseConfig = Object.freeze({
   appName: 'الفهد TV', packageName: 'com.alfahdtv.app.debug', homeUrl: HOME_URL,
-  minimumVersionCode: 1, latestVersionCode: 27, latestVersionName: '3.6.0',
-  apkUrl: 'https://github.com/merom2854-sketch/elfahd/releases/download/v3.6.0/Al-Fahd-TV-3.6.0.apk',
+  minimumVersionCode: 1, latestVersionCode: 28, latestVersionName: '3.6.1',
+  apkUrl: 'https://github.com/merom2854-sketch/elfahd/releases/download/v3.6.1/Al-Fahd-TV-3.6.1.apk',
   maintenance: false, maintenanceMessage: '',
   features: { downloads: true, fullscreenVideo: true, pictureInPicture: true, anime: true, channels: true, secureScreens: true }
 });

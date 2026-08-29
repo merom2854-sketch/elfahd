@@ -129,6 +129,7 @@ class NativeHomeActivity : ComponentActivity() {
         window.navigationBarColor = AndroidColor.BLACK
         WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
         NotificationScheduler.schedule(this)
+        NotificationScheduler.checkNow(this)
         requestNotifications()
         Handler(Looper.getMainLooper()).postDelayed({ UpdateChecker.check(this, false) }, 1800)
         setContent {

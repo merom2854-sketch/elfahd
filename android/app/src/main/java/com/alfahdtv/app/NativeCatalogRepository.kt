@@ -247,11 +247,11 @@ class NativeCatalogRepository {
     private fun metadataActors(title: String, kind: CatalogKind): List<Actor> = emptyList()
 
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
-    private fun workerUrl(value: String): String = value.trim().replaceFirst(Regex("^https://ak\\.sv/", RegexOption.IGNORE_CASE), "https://akwam.it/")
+    private fun workerUrl(value: String): String = value.trim().replaceFirst(Regex("^https://(?:ak\\.sv|akwam\\.ss)/", RegexOption.IGNORE_CASE), "https://akwam.it/")
     private fun resolveMediaUrl(value: String): String = runCatching {
         val page = fetchPage(workerUrl(value))
-        val watch = Regex("href\\s*=\\s*[\\\"'](https?://(?:ak\\.sv|akwam\\.it)/watch/[^\\\"']+)[\\\"']", RegexOption.IGNORE_CASE).find(page)?.groupValues?.get(1) ?: return@runCatching ""
-        val watchPage = fetchPage(watch)
+        val watch = Regex("href\\s*=\\s*[\\\"'](https?://(?:ak\\.sv|akwam\\.it|akwam\\.ss)/watch/[^\\\"']+)[\\\"']", RegexOption.IGNORE_CASE).find(page)?.groupValues?.get(1) ?: return@runCatching ""
+        val watchPage = fetchPage(workerUrl(watch))
         val source = Regex("<source[^>]+src\\s*=\\s*[\\\"']([^\\\"']+)[\\\"']", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)).find(watchPage)?.groupValues?.get(1) ?: return@runCatching ""
         compatibleMediaUrl(source)
     }.getOrDefault("")
@@ -279,7 +279,7 @@ class NativeCatalogRepository {
     private fun isNoise(title: String): Boolean = title.equals("اكوام", true) || title.contains("web stats", true) || title.contains("إشعارات اكوام")
     private fun highResolutionPoster(value: String): String = value.replace(Regex("/thumb/\\d+x\\d+/"), "/")
     private fun compatibleMediaUrl(value: String): String {
-        val clean = value.trim()
-        return if (clean.startsWith("https://") && Regex("^https://(?:[^/]+\\.)?downet\\.net/", RegexOption.IGNORE_CASE).containsMatchIn(clean)) clean.replaceFirst("https://", "http://") else clean.takeIf { it.startsWith("https://") } ?: ""
+        val clean = value.trim().replaceFirst(Regex("^http://", RegexOption.IGNORE_CASE), "https://")
+        return clean.takeIf { it.startsWith("https://") } ?: ""
     }
 }
