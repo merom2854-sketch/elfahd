@@ -32,8 +32,10 @@ data class ContentDetail(
 class NativeCatalogRepository {
     companion object {
         private const val WORKER = "https://akwam-stream-fetcher.meroo3292.workers.dev/"
-        private const val METADATA_API = "https://al-fahd-api-production.up.railway.app/v1/metadata"
-        private const val MANUAL_API = "https://al-fahd-api-production.up.railway.app/v1/content/manual"
+        // This data is hosted with the public site, not on a Railway runtime. The GitHub
+        // copy keeps the manual catalogue available even while the site is being redeployed.
+        private const val MANUAL_API = "https://elfahd-tv.vercel.app/data/manual-content.json"
+        private const val MANUAL_FALLBACK_API = "https://raw.githubusercontent.com/merom2854-sketch/elfahd/main/data/manual-content.json"
         const val MOVIES = "https://akwam.it/movies"
         const val SERIES = "https://akwam.it/series"
         const val ANIME_MOVIES = "https://akwam.it/movies?category=30&section=0"
@@ -71,7 +73,11 @@ class NativeCatalogRepository {
     }
 
     suspend fun manualContent(): List<CatalogItem> = withContext(Dispatchers.IO) {
-        val data = runCatching { request(MANUAL_API).optJSONArray("data") }.getOrNull() ?: return@withContext emptyList()
+        val data = listOf(MANUAL_API, MANUAL_FALLBACK_API)
+            .asSequence()
+            .mapNotNull { endpoint -> runCatching { request("$endpoint?ts=${System.currentTimeMillis()}").optJSONArray("data") }.getOrNull() }
+            .firstOrNull()
+            ?: return@withContext emptyList()
         buildList {
             for (index in 0 until data.length()) {
                 val value = data.optJSONObject(index) ?: continue
@@ -235,14 +241,10 @@ class NativeCatalogRepository {
         .replace("&amp;", "&").replace("&quot;", "\"").replace("&#039;", "'")
         .replace(Regex("\\s+"), " ").trim()
 
-    private fun metadataActors(title: String, kind: CatalogKind): List<Actor> {
-        return runCatching {
-            val type = if (kind == CatalogKind.MOVIE) "movie" else "tv"
-            val payload = request("$METADATA_API?title=${encode(title)}&kind=$type")
-            val values = payload.optJSONObject("data")?.optJSONArray("actors") ?: return@runCatching emptyList()
-            buildList { for (index in 0 until values.length()) { val actor = values.optJSONObject(index); if (actor != null) add(Actor(actor.optString("name").trim(), actor.optString("image").trim())) } }.filter { it.name.isNotBlank() }.distinctBy { it.name }.take(12)
-        }.getOrDefault(emptyList())
-    }
+    // The source parser already supplies actor names when available. Do not make a content
+    // page depend on a separate metadata server merely to enrich those names with photos.
+    @Suppress("UNUSED_PARAMETER")
+    private fun metadataActors(title: String, kind: CatalogKind): List<Actor> = emptyList()
 
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
     private fun workerUrl(value: String): String = value.trim().replaceFirst(Regex("^https://ak\\.sv/", RegexOption.IGNORE_CASE), "https://akwam.it/")

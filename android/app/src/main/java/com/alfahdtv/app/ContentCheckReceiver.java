@@ -19,7 +19,10 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
 public final class ContentCheckReceiver extends BroadcastReceiver {
-    private static final String NOTIFICATIONS_API = "https://al-fahd-api-production.up.railway.app/v1/notifications/latest";
+    private static final String[] NOTIFICATIONS_APIS = {
+            "https://elfahd-tv.vercel.app/data/notifications.json",
+            "https://raw.githubusercontent.com/merom2854-sketch/elfahd/main/data/notifications.json"
+    };
 
     @Override public void onReceive(Context context, Intent intent) {
         final PendingResult pending = goAsync();
@@ -33,26 +36,30 @@ public final class ContentCheckReceiver extends BroadcastReceiver {
     }
 
     private boolean checkRemoteNotification(Context context) {
-        try {
-            HttpURLConnection connection = (HttpURLConnection) new URL(NOTIFICATIONS_API).openConnection();
-            connection.setConnectTimeout(9000);
-            connection.setReadTimeout(9000);
-            connection.setRequestProperty("Accept", "application/json");
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
-                StringBuilder body = new StringBuilder(); String line;
-                while ((line = reader.readLine()) != null) body.append(line);
-                JSONObject data = new JSONObject(body.toString()).optJSONObject("data");
-                if (data == null) return false;
-                String id = data.optString("id", "");
-                if (id.isEmpty()) return false;
-                SharedPreferences preferences = context.getSharedPreferences("content", 0);
-                String old = preferences.getString("notification_id", "");
-                preferences.edit().putString("notification_id", id).apply();
-                if (old.isEmpty() || old.equals(id)) return false;
-                notify(context, data.optString("title", "الفهد TV"), data.optString("body", "إضافة جديدة متاحة الآن"));
-                return true;
-            } finally { connection.disconnect(); }
-        } catch (Exception ignored) { return false; }
+        for (String endpoint : NOTIFICATIONS_APIS) {
+            try {
+                HttpURLConnection connection = (HttpURLConnection) new URL(endpoint + "?ts=" + System.currentTimeMillis()).openConnection();
+                connection.setConnectTimeout(9000);
+                connection.setReadTimeout(9000);
+                connection.setRequestProperty("Accept", "application/json");
+                connection.setRequestProperty("Cache-Control", "no-cache");
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
+                    StringBuilder body = new StringBuilder(); String line;
+                    while ((line = reader.readLine()) != null) body.append(line);
+                    JSONObject data = new JSONObject(body.toString()).optJSONObject("data");
+                    if (data == null) return false;
+                    String id = data.optString("id", "");
+                    if (id.isEmpty()) return false;
+                    SharedPreferences preferences = context.getSharedPreferences("content", 0);
+                    String old = preferences.getString("notification_id", "");
+                    preferences.edit().putString("notification_id", id).apply();
+                    if (old.isEmpty() || old.equals(id)) return false;
+                    notify(context, data.optString("title", "الفهد TV"), data.optString("body", "إضافة جديدة متاحة الآن"));
+                    return true;
+                } finally { connection.disconnect(); }
+            } catch (Exception ignored) { }
+        }
+        return false;
     }
 
     private void checkLatestContent(Context context) {

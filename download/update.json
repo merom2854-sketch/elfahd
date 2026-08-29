@@ -1,6 +1,6 @@
 {
-  "version": "3.5.0",
-  "versionCode": 26,
-  "apkUrl": "https://github.com/merom2854-sketch/elfahd/releases/download/v3.5.0/Al-Fahd-TV-3.5.0.apk",
-  "releaseNotes": "إشعارات إدارية عبر موجّه التحديث مع دعم Firebase الاختياري"
+  "version": "3.6.0",
+  "versionCode": 27,
+  "apkUrl": "https://github.com/merom2854-sketch/elfahd/releases/download/v3.6.0/Al-Fahd-TV-3.6.0.apk",
+  "releaseNotes": "إزالة الاعتماد على Railway: المحتوى اليدوي والإشعارات يعملان الآن من استضافة الموقع مع نسخة احتياطية على GitHub."
 }
