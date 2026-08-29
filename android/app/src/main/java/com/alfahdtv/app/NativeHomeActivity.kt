@@ -130,6 +130,7 @@ class NativeHomeActivity : ComponentActivity() {
         WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
         NotificationScheduler.schedule(this)
         NotificationScheduler.checkNow(this)
+        UsageReporter.register(this)
         requestNotifications()
         Handler(Looper.getMainLooper()).postDelayed({ UpdateChecker.check(this, false) }, 1800)
         setContent {
