@@ -39,8 +39,10 @@ android {
             // Keep the installed package and certificate so v1.x users receive this as an update.
             applicationIdSuffix '.debug'
             signingConfig signingConfigs.migrationRelease
-            minifyEnabled false
-            shrinkResources false
+            // Obfuscate and shrink the production APK so embedded implementation
+            // details are harder to recover from a reverse-engineered build.
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }

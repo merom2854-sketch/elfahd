@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>تحميل تطبيق الفهد TV</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#080a10;color:#fff;font-family:Arial,sans-serif;text-align:center}.box{max-width:420px;margin:20px;padding:32px;border:1px solid #ffffff18;border-radius:24px;background:#121722;box-shadow:0 20px 60px #0008}img{width:82px;height:82px;border-radius:22px}h1{margin:18px 0 8px}p{color:#aeb7c8;line-height:1.7}a{display:inline-flex;align-items:center;justify-content:center;min-height:50px;padding:0 24px;border-radius:14px;background:#ed3150;color:#fff;text-decoration:none;font-weight:700;font-size:16px}#state{margin-top:14px;font-size:13px;color:#9ca8bb}</style>
+<main class="box"><img src="/download/assets/fahd-logo.jpg" alt="الفهد TV"><h1>تحميل الفهد TV</h1><p>جاري تجهيز أحدث إصدار آمن وموقّع للتطبيق.</p><a id="download" href="/download/update.json" rel="nofollow">بدء التحميل</a><div id="state">سيبدأ التحميل تلقائيًا…</div></main>
+<script>
+fetch('/download/update.json?ts='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():Promise.reject()).then(data=>{if(!/^https:\/\//i.test(data.apkUrl))throw new Error();document.getElementById('download').href=data.apkUrl;location.replace(data.apkUrl)}).catch(()=>{document.getElementById('state').textContent='تعذر تجهيز الرابط. اضغط المحاولة مرة أخرى.';document.getElementById('download').textContent='إعادة المحاولة';document.getElementById('download').href='/download/app'})
+</script>

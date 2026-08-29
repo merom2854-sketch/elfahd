@@ -26,6 +26,7 @@
     }
   ],
   "rewrites": [
+    { "source": "/download/app", "destination": "/download/app.html" },
     { "source": "/download", "destination": "/download/index.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
