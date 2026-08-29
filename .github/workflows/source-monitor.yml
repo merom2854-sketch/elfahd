@@ -1,0 +1,17 @@
+name: Monitor content source
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/30 * * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  check-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check Worker, source page, video and signing
+        run: node scripts/source-monitor.mjs
