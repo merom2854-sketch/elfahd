@@ -1,6 +1,6 @@
 {
-  "version": "3.6.2",
-  "versionCode": 29,
-  "apkUrl": "https://github.com/merom2854-sketch/elfahd/releases/download/v3.6.2/Al-Fahd-TV-3.6.2.apk",
-  "releaseNotes": "إصلاح نهائي لروابط المشاهدة والتحميل بعد تغيير نطاق المصدر، مع تحسين الإشعارات."
+  "version": "3.6.3",
+  "versionCode": 30,
+  "apkUrl": "https://github.com/merom2854-sketch/elfahd/releases/download/v3.6.3/Al-Fahd-TV-3.6.3.apk",
+  "releaseNotes": "إصلاح تشغيل وتحميل الفيديو عبر الرابط الموقّع الآمن من Worker."
 }

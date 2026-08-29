@@ -120,7 +120,7 @@ class NativeCatalogRepository {
         val parsed = runCatching {
             parseDetail(request("$WORKER?action=series&series=${encode(workerUrl(item.href))}"), item.title)
         }.getOrElse { fallbackDetail(item.href, item.title) }
-        val playable = if (parsed.mediaUrl.isBlank() && item.kind == CatalogKind.MOVIE) resolveMediaUrl(item.href) else parsed.mediaUrl
+        val playable = if (parsed.mediaUrl.isBlank() && item.kind == CatalogKind.MOVIE) resolveMediaUrl(item.href) else secureMediaUrl(parsed.mediaUrl)
         val resolved = if (playable == parsed.mediaUrl) parsed else parsed.copy(mediaUrl = playable)
         if (resolved.actors.isNotEmpty()) resolved else resolved.copy(actors = metadataActors(item.title, item.kind))
     }
@@ -129,7 +129,7 @@ class NativeCatalogRepository {
         val parsed = runCatching {
             parseDetail(request("$WORKER?action=series&series=${encode(workerUrl(link))}"), fallbackTitle)
         }.getOrElse { fallbackDetail(link, fallbackTitle) }
-        if (parsed.mediaUrl.isNotBlank()) parsed else parsed.copy(mediaUrl = resolveMediaUrl(link))
+        if (parsed.mediaUrl.isNotBlank()) parsed.copy(mediaUrl = secureMediaUrl(parsed.mediaUrl)) else parsed.copy(mediaUrl = resolveMediaUrl(link))
     }
 
     private fun parseDetail(payload: JSONObject, fallbackTitle: String): ContentDetail {
@@ -253,7 +253,7 @@ class NativeCatalogRepository {
         val watch = Regex("href\\s*=\\s*[\\\"'](https?://(?:ak\\.sv|akwam\\.it|akwam\\.ss)/watch/[^\\\"']+)[\\\"']", RegexOption.IGNORE_CASE).find(page)?.groupValues?.get(1) ?: return@runCatching ""
         val watchPage = fetchPage(workerUrl(watch))
         val source = Regex("<source[^>]+src\\s*=\\s*[\\\"']([^\\\"']+)[\\\"']", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)).find(watchPage)?.groupValues?.get(1) ?: return@runCatching ""
-        compatibleMediaUrl(source)
+        secureMediaUrl(source)
     }.getOrDefault("")
     private fun fetchPage(url: String): String {
         var lastError: Exception? = null
@@ -281,5 +281,13 @@ class NativeCatalogRepository {
     private fun compatibleMediaUrl(value: String): String {
         val clean = value.trim().replaceFirst(Regex("^http://", RegexOption.IGNORE_CASE), "https://")
         return clean.takeIf { it.startsWith("https://") } ?: ""
+    }
+    private fun secureMediaUrl(value: String): String {
+        val clean = compatibleMediaUrl(value)
+        if (clean.isBlank() || clean.startsWith(WORKER)) return clean
+        return runCatching {
+            val signed = request("$WORKER?action=sign&url=${encode(clean)}").optString("url").trim()
+            signed.takeIf { it.startsWith("https://") } ?: clean
+        }.getOrDefault(clean)
     }
 }
