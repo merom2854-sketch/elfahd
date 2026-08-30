@@ -38,6 +38,7 @@
         <activity android:name=".DownloadsActivity" android:exported="false" />
         <activity android:name=".LibraryActivity" android:exported="false" />
         <activity android:name=".SettingsActivity" android:exported="false" />
+        <activity android:name=".LivePlayerActivity" android:exported="false" android:configChanges="orientation|screenSize|smallestScreenSize|uiMode" />
         <activity android:name=".PlayerActivity" android:exported="false" android:configChanges="orientation|screenSize|smallestScreenSize|uiMode" android:supportsPictureInPicture="true" />
         <receiver android:name=".ContentCheckReceiver" android:exported="false" />
         <receiver android:name=".BootReceiver" android:enabled="true" android:exported="true">

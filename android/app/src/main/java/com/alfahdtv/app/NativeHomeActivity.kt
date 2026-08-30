@@ -143,6 +143,7 @@ class NativeHomeActivity : ComponentActivity() {
                         onOpenDownloads = { startActivity(Intent(this, DownloadsActivity::class.java)) },
                         onOpenSettings = { startActivity(Intent(this, SettingsActivity::class.java)) },
                         onOpenExternal = ::openExternal,
+                        onOpenLive = ::openLive,
                     )
                 }
             }
@@ -177,6 +178,10 @@ class NativeHomeActivity : ComponentActivity() {
         try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } catch (_: Exception) { toast("تعذر فتح الرابط") }
     }
 
+    private fun openLive(url: String, title: String) {
+        startActivity(Intent(this, LivePlayerActivity::class.java).putExtra(LivePlayerActivity.EXTRA_URL, url).putExtra(LivePlayerActivity.EXTRA_TITLE, title))
+    }
+
     private fun requestNotifications() {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 88)
     }
@@ -194,6 +199,7 @@ private fun FahdApp(
     onOpenDownloads: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenExternal: (String) -> Unit,
+    onOpenLive: (String, String) -> Unit,
 ) {
     val context = LocalContext.current
     val library = remember { context.getSharedPreferences("data", 0) }
@@ -321,7 +327,7 @@ private fun FahdApp(
                 destination == FahdDestination.HOME -> HomeScreen(movies, series, anime, resume, loading, error, onRetry = { reloadKey++ }, onSelect = { selected = it }, onResume = { resume?.let { onPlay(it.url, it.title, it.image) } }, onViewAll = { allKind = it }, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onTelegram = { onOpenExternal("https://t.me/elfahd_tv") }, contentBottomPadding = padding.calculateBottomPadding())
                 destination == FahdDestination.MOVIES -> CatalogGrid("الأفلام", filteredMovies, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding(), movieCategories, selectedMovieCategory) { chooseCategory(CatalogKind.MOVIE, it) }
                 destination == FahdDestination.SERIES -> CatalogGrid("المسلسلات", filteredSeries, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding(), seriesCategories, selectedSeriesCategory) { chooseCategory(CatalogKind.SERIES, it) }
-                destination == FahdDestination.CHANNELS -> ChannelsScreen(onBack = { destination = FahdDestination.HOME }, onOpenExternal = onOpenExternal, bottomPadding = padding.calculateBottomPadding())
+                destination == FahdDestination.CHANNELS -> ChannelsScreen(onBack = { destination = FahdDestination.HOME }, onOpenLive = onOpenLive, onOpenExternal = onOpenExternal, bottomPadding = padding.calculateBottomPadding())
                 else -> LibraryScreen((movies + series + anime).distinctBy { it.href }, favoriteEntries, historyEntries, onSelect = { selected = it }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, bottomPadding = padding.calculateBottomPadding())
             }
         }
@@ -662,16 +668,37 @@ private fun LibraryScreen(
 }
 
 @Composable
-private fun ChannelsScreen(onBack: () -> Unit, onOpenExternal: (String) -> Unit, bottomPadding: androidx.compose.ui.unit.Dp) {
+private fun ChannelsScreen(onBack: () -> Unit, onOpenLive: (String, String) -> Unit, onOpenExternal: (String) -> Unit, bottomPadding: androidx.compose.ui.unit.Dp) {
     val channels = listOf(
         Triple("الجزيرة الإخبارية", "أخبار وبث مباشر", "https://www.aljazeera.net/live"),
         Triple("سكاي نيوز عربية", "أخبار عربية وعالمية", "https://www.skynewsarabia.com/livestream-%D8%A7%D9%84%D8%A8%D8%AB-%D8%A7%D9%84%D9%85%D8%A8%D8%A7%D8%B4%D8%B1"),
         Triple("العربية", "البث المباشر الرسمي", "https://www.alarabiya.net/live-stream"),
         Triple("فرانس 24 عربي", "أخبار دولية بالعربية", "https://www.france24.com/ar/live"),
     )
+    var fixtures by remember { mutableStateOf<List<LiveFixture>>(emptyList()) }
+    var loadingFixtures by remember { mutableStateOf(true) }
+    var fixturesError by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        runCatching { LiveScheduleRepository.fixtures() }
+            .onSuccess { fixtures = it }
+            .onFailure { fixturesError = true }
+        loadingFixtures = false
+    }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().statusBarsPadding().padding(12.dp), verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowForward, "رجوع") }; Text("القنوات المباشرة", style = MaterialTheme.typography.titleLarge) }
         LazyColumn(contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 8.dp, bottom = bottomPadding + 18.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+            item { Text("مباريات اليوم", fontWeight = FontWeight.Bold, fontSize = 19.sp, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)) }
+            if (loadingFixtures) item { LoadingBlock() }
+            if (fixturesError) item { Text("تعذر تحديث مباريات اليوم الآن", color = FahdColors.Muted, modifier = Modifier.padding(vertical = 14.dp)) }
+            if (!loadingFixtures && !fixturesError && fixtures.isEmpty()) item { Text("لا توجد مباريات متاحة حاليًا", color = FahdColors.Muted, modifier = Modifier.padding(vertical = 14.dp)) }
+            items(fixtures, key = { it.id }) { fixture ->
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp)).background(FahdColors.Surface).clickable { onOpenLive(fixture.playbackPage, "${fixture.home} ضد ${fixture.away}") }.padding(17.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Surface(shape = RoundedCornerShape(13.dp), color = if (fixture.isLive) FahdColors.Red.copy(alpha = .18f) else FahdColors.SurfaceHigh, modifier = Modifier.size(49.dp)) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.LiveTv, null, tint = if (fixture.isLive) FahdColors.Red else FahdColors.Muted) } }
+                    Column(Modifier.padding(horizontal = 13.dp).weight(1f)) { Text("${fixture.home} × ${fixture.away}", fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(fixture.league.ifBlank { "كرة القدم" }, color = FahdColors.Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    Text(fixture.statusLabel, color = if (fixture.isLive) FahdColors.Red else FahdColors.Muted, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                }
+            }
+            item { Text("قنوات إخبارية", fontWeight = FontWeight.Bold, fontSize = 19.sp, modifier = Modifier.padding(top = 15.dp, bottom = 2.dp)) }
             items(channels) { channel -> Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp)).background(FahdColors.Surface).clickable { onOpenExternal(channel.third) }.padding(17.dp), verticalAlignment = Alignment.CenterVertically) { Surface(shape = RoundedCornerShape(13.dp), color = FahdColors.Red.copy(alpha = .15f), modifier = Modifier.size(49.dp)) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.LiveTv, null, tint = FahdColors.Red) } }; Column(Modifier.padding(horizontal = 13.dp).weight(1f)) { Text(channel.first, fontWeight = FontWeight.Bold); Text(channel.second, color = FahdColors.Muted, fontSize = 12.sp) }; Text("فتح البث", color = FahdColors.Red, fontWeight = FontWeight.Bold, fontSize = 12.sp) } }
         }
     }
