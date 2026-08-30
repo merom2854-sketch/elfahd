@@ -1,6 +1,7 @@
 package com.alfahdtv.app
 
 import android.annotation.SuppressLint
+import android.content.pm.ActivityInfo
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -9,6 +10,7 @@ import android.view.View
 import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -17,7 +19,9 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import java.io.ByteArrayInputStream
 
 /**
  * Keeps the live-source compatibility surface inside Al Fahd TV while the
@@ -33,6 +37,7 @@ class LivePlayerActivity : ComponentActivity() {
     private lateinit var webView: WebView
     private lateinit var loading: View
     private lateinit var loadingText: TextView
+    private lateinit var topBar: LinearLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,12 +52,13 @@ class LivePlayerActivity : ComponentActivity() {
             finish()
             return
         }
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
 
         val root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(10, 11, 16)) }
         webView = WebView(this)
         root.addView(webView, FrameLayout.LayoutParams(-1, -1))
 
-        val topBar = LinearLayout(this).apply {
+        topBar = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(44), dp(12), dp(10))
             setBackgroundColor(0xE60C0D12.toInt())
@@ -113,6 +119,7 @@ class LivePlayerActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) webView.settings.safeBrowsingEnabled = true
         webView.webChromeClient = object : WebChromeClient() {
             override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean = true
+            override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message?): Boolean = false
         }
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -128,7 +135,15 @@ class LivePlayerActivity : ComponentActivity() {
                 super.onPageFinished(view, url)
                 applyPlayerOnlyLayout()
                 loadingText.text = "يتم الاتصال بسيرفر البث…"
-                view.postDelayed({ loading.visibility = View.GONE }, 1800)
+                view.postDelayed({
+                    loading.visibility = View.GONE
+                    topBar.visibility = View.GONE
+                    WindowInsetsControllerCompat(window, window.decorView).hide(WindowInsetsCompat.Type.systemBars())
+                }, 1800)
+            }
+
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                return if (isAdvertisingResource(request.url.host.orEmpty())) emptyResponse() else super.shouldInterceptRequest(view, request)
             }
 
             @Deprecated("Deprecated in Java")
@@ -147,6 +162,13 @@ class LivePlayerActivity : ComponentActivity() {
               var wrapper=document.querySelector('.player-chat-wrapper');
               var section=document.querySelector('.player-section');
               var player=document.getElementById('playerContainer');
+              window.open=function(){return null;};
+              document.querySelectorAll('iframe').forEach(function(frame){if(player && !player.contains(frame))frame.remove();});
+              if(!window.__alfahdPopupGuard){
+                window.__alfahdPopupGuard=true;
+                new MutationObserver(function(records){records.forEach(function(record){record.addedNodes.forEach(function(node){if(node.tagName==='IFRAME' && player && !player.contains(node))node.remove();});});}).observe(document.documentElement,{childList:true,subtree:true});
+                document.addEventListener('click',function(event){var link=event.target.closest&&event.target.closest('a[target="_blank"]');if(link && (!player || !player.contains(link))){event.preventDefault();event.stopPropagation();}},true);
+              }
               if(container){container.style.cssText+='max-width:none!important;width:100%!important;margin:0!important;padding:0!important;';}
               if(wrapper){wrapper.style.cssText+='display:block!important;margin:0!important;padding:0!important;';}
               if(section){section.style.cssText+='width:100%!important;margin:0!important;padding:0!important;';}
@@ -158,8 +180,17 @@ class LivePlayerActivity : ComponentActivity() {
     }
 
     private fun showFailure() {
+        if (::topBar.isInitialized) topBar.visibility = View.VISIBLE
+        WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
         loadingText.text = "تعذر تجهيز البث الآن، جرّب سيرفرًا آخر أو أعد المحاولة"
         loading.visibility = View.VISIBLE
+    }
+
+    private fun emptyResponse(): WebResourceResponse = WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream(ByteArray(0)))
+
+    private fun isAdvertisingResource(host: String): Boolean {
+        val lowered = host.lowercase()
+        return listOf("doubleclick", "googlesyndication", "googleadservices", "adservice", "adnxs", "exoclick", "popads", "popcash", "propellerads", "adsterra", "trafficjunky", "onclickads").any { lowered.contains(it) }
     }
 
     private fun isTrustedSource(value: String): Boolean = runCatching {
