@@ -1,0 +1,15 @@
+name = "elfahd-live-gateway"
+main = "src/index.js"
+compatibility_date = "2025-08-01"
+workers_dev = false
+
+# Do not put source URLs, tokens, or API keys in this file. Add the deployment
+# values from the Cloudflare dashboard or with `wrangler secret put`.
+
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["RateLimiter"]
