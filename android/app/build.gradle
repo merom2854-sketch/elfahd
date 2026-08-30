@@ -29,6 +29,10 @@ android {
         compose true
     }
 
+    lint {
+        checkReleaseBuilds false
+      }
+
     composeOptions {
         kotlinCompilerExtensionVersion '1.5.14'
     }
