@@ -117,9 +117,15 @@ class NativeCatalogRepository {
     }
 
     suspend fun detail(item: CatalogItem): ContentDetail = withContext(Dispatchers.IO) {
-        val parsed = runCatching {
+        val workerParsed = runCatching {
             parseDetail(request("$WORKER?action=series&series=${encode(workerUrl(item.href))}"), item.title)
         }.getOrElse { fallbackDetail(item.href, item.title) }
+        // The source sometimes returns a successful JSON shell with no media or
+        // episodes after a backend change. Fall back to parsing the public page
+        // instead of showing a broken detail screen.
+        val parsed = if (workerParsed.mediaUrl.isBlank() || (item.kind != CatalogKind.MOVIE && workerParsed.episodes.isEmpty())) {
+            runCatching { fallbackDetail(item.href, item.title) }.getOrDefault(workerParsed)
+        } else workerParsed
         val playable = if (parsed.mediaUrl.isBlank() && item.kind == CatalogKind.MOVIE) resolveMediaUrl(item.href) else secureMediaUrl(parsed.mediaUrl)
         val resolved = if (playable == parsed.mediaUrl) parsed else parsed.copy(mediaUrl = playable)
         if (resolved.actors.isNotEmpty()) resolved else resolved.copy(actors = metadataActors(item.title, item.kind))
