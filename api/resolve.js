@@ -26,12 +26,19 @@ module.exports = async (request, response) => {
     const html = await page.text();
 
     const links = [...html.matchAll(/href=["'](https?:\/\/(?:[\w-]+\.)?(?:akwam\.it|akwam\.ss|ak\.sv)\/(?:download|watch)\/[^"']+)["']/gi)].map(match => match[1]);
-    // Watch pages consistently carry a playable source; download pages may only
-    // contain quality controls after recent source-side markup changes.
-    const landing = links.find(link => /\/watch\//i.test(link)) || links.find(link => /\/download\//i.test(link)) || '';
-    const target = landing || raw;
-    const sourcePage = target === raw ? html : await (await fetch(target.replace(/^https:\/\/akwam\.ss\//i, 'https://akwam.it/'), { headers, redirect: 'follow' })).text();
-    const media = firstMatch(sourcePage, /<source[^>]+src=["'](https?:\/\/[^"']+)["']/i) || firstMatch(sourcePage, /(?:src|file)\s*[:=]\s*["'](https?:\/\/[^"']+\.(?:mp4|m3u8)[^"']*)["']/i);
+    // A source item can publish several qualities; some listed watch links may
+    // be expired. Probe the small candidate set concurrently and use the first
+    // page that actually contains a media source.
+    const candidates = [...new Set([...links.filter(link => /\/watch\//i.test(link)), ...links.filter(link => /\/download\//i.test(link))])].slice(0, 12);
+    const resolved = await Promise.all(candidates.map(async target => {
+      try {
+        const item = await fetch(target.replace(/^https:\/\/akwam\.ss\//i, 'https://akwam.it/'), { headers, redirect: 'follow' });
+        if (!item.ok) return '';
+        const sourcePage = await item.text();
+        return firstMatch(sourcePage, /<source[^>]+src=["'](https?:\/\/[^"']+)["']/i) || firstMatch(sourcePage, /(?:src|file)\s*[:=]\s*["'](https?:\/\/[^"']+\.(?:mp4|m3u8)[^"']*)["']/i);
+      } catch { return ''; }
+    }));
+    const media = resolved.find(value => /^https:\/\//i.test(value)) || '';
     if (!/^https:\/\//i.test(media)) throw new Error('No playable media found');
 
     const description = firstMatch(html, /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i);
