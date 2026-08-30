@@ -32,6 +32,7 @@ data class ContentDetail(
 class NativeCatalogRepository {
     companion object {
         private const val WORKER = "https://akwam-stream-fetcher.meroo3292.workers.dev/"
+        private const val ONLINE_RESOLVER = "https://elfahd-tv.vercel.app/api/resolve"
         // This data is hosted with the public site, not on a Railway runtime. The GitHub
         // copy keeps the manual catalogue available even while the site is being redeployed.
         private const val MANUAL_API = "https://elfahd-tv.vercel.app/data/manual-content.json"
@@ -126,8 +127,15 @@ class NativeCatalogRepository {
         val parsed = if (workerParsed.mediaUrl.isBlank() || (item.kind != CatalogKind.MOVIE && workerParsed.episodes.isEmpty())) {
             runCatching { fallbackDetail(item.href, item.title) }.getOrDefault(workerParsed)
         } else workerParsed
-        val playable = if (parsed.mediaUrl.isBlank() && item.kind == CatalogKind.MOVIE) resolveMediaUrl(item.href) else secureMediaUrl(parsed.mediaUrl)
-        val resolved = if (playable == parsed.mediaUrl) parsed else parsed.copy(mediaUrl = playable)
+        val online = onlineResolve(item.href)
+        val onlineMedia = online?.optString("media_src").orEmpty()
+        val playable = if (onlineMedia.isNotBlank()) secureMediaUrl(onlineMedia) else if (parsed.mediaUrl.isBlank() && item.kind == CatalogKind.MOVIE) resolveMediaUrl(item.href) else secureMediaUrl(parsed.mediaUrl)
+        val onlineActors = onlineActors(online)
+        val resolved = parsed.copy(
+            description = parsed.description.ifBlank { online?.optString("description").orEmpty() },
+            mediaUrl = playable,
+            actors = if (onlineActors.isNotEmpty()) onlineActors else parsed.actors,
+        )
         if (resolved.actors.isNotEmpty()) resolved else resolved.copy(actors = metadataActors(item.title, item.kind))
     }
 
@@ -135,7 +143,14 @@ class NativeCatalogRepository {
         val parsed = runCatching {
             parseDetail(request("$WORKER?action=series&series=${encode(workerUrl(link))}"), fallbackTitle)
         }.getOrElse { fallbackDetail(link, fallbackTitle) }
-        if (parsed.mediaUrl.isNotBlank()) parsed.copy(mediaUrl = secureMediaUrl(parsed.mediaUrl)) else parsed.copy(mediaUrl = resolveMediaUrl(link))
+        val online = onlineResolve(link)
+        val media = online?.optString("media_src").orEmpty()
+        val actors = onlineActors(online)
+        parsed.copy(
+            description = parsed.description.ifBlank { online?.optString("description").orEmpty() },
+            mediaUrl = if (media.isNotBlank()) secureMediaUrl(media) else if (parsed.mediaUrl.isNotBlank()) secureMediaUrl(parsed.mediaUrl) else resolveMediaUrl(link),
+            actors = if (actors.isNotEmpty()) actors else parsed.actors,
+        )
     }
 
     private fun parseDetail(payload: JSONObject, fallbackTitle: String): ContentDetail {
@@ -253,6 +268,19 @@ class NativeCatalogRepository {
     private fun metadataActors(title: String, kind: CatalogKind): List<Actor> = emptyList()
 
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
+    private fun onlineResolve(value: String): JSONObject? = runCatching {
+        val response = request("$ONLINE_RESOLVER?url=${encode(workerUrl(value))}")
+        response.takeIf { it.optString("status") == "success" }
+    }.getOrNull()
+    private fun onlineActors(payload: JSONObject?): List<Actor> {
+        val values = payload?.optJSONArray("actors") ?: return emptyList()
+        return buildList {
+            for (index in 0 until values.length()) {
+                val name = values.optString(index).trim()
+                if (name.isNotBlank() && name.length <= 60) add(Actor(name, ""))
+            }
+        }.distinctBy { it.name }.take(12)
+    }
     private fun workerUrl(value: String): String = value.trim().replaceFirst(Regex("^https://(?:ak\\.sv|akwam\\.ss)/", RegexOption.IGNORE_CASE), "https://akwam.it/")
     private fun resolveMediaUrl(value: String): String = runCatching {
         val page = fetchPage(workerUrl(value))

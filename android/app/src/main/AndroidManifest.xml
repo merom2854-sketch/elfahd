@@ -19,11 +19,10 @@
         android:usesCleartextTraffic="false"
         android:theme="@style/Theme.AlFahdTV">
         <activity
-            android:name=".MainActivity"
+            android:name=".NativeHomeActivity"
             android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="true"
             android:screenOrientation="unspecified"
-            android:supportsPictureInPicture="true"
             android:theme="@style/Theme.AlFahdTV">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -31,7 +30,7 @@
             </intent-filter>
         </activity>
         <activity
-            android:name=".NativeHomeActivity"
+            android:name=".MainActivity"
             android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="false"
             android:screenOrientation="unspecified"
