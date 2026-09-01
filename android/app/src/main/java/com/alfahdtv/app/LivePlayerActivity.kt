@@ -99,7 +99,8 @@ class LivePlayerActivity : ComponentActivity() {
         setContentView(root)
 
         configureBrowser()
-        webView.loadUrl(sourceUrl)
+        loading.setOnClickListener { resolveAndLoad(sourceUrl) }
+        resolveAndLoad(sourceUrl)
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -114,7 +115,7 @@ class LivePlayerActivity : ComponentActivity() {
             javaScriptCanOpenWindowsAutomatically = false
             setSupportMultipleWindows(false)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            userAgentString = "$userAgentString AlFahdTV/3.7"
+            userAgentString = "$userAgentString AlFahdTV/3.7.4"
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) webView.settings.safeBrowsingEnabled = true
         webView.webChromeClient = object : WebChromeClient() {
@@ -122,9 +123,7 @@ class LivePlayerActivity : ComponentActivity() {
             override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message?): Boolean = false
         }
         webView.webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                return request.isForMainFrame && !isTrustedSource(request.url.toString())
-            }
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = request.isForMainFrame
 
             override fun onPageCommitVisible(view: WebView, url: String) {
                 super.onPageCommitVisible(view, url)
@@ -133,7 +132,6 @@ class LivePlayerActivity : ComponentActivity() {
 
             override fun onPageFinished(view: WebView, url: String) {
                 super.onPageFinished(view, url)
-                applyPlayerOnlyLayout()
                 loadingText.text = "يتم الاتصال بسيرفر البث…"
                 view.postDelayed({
                     loading.visibility = View.GONE
@@ -182,15 +180,47 @@ class LivePlayerActivity : ComponentActivity() {
     private fun showFailure() {
         if (::topBar.isInitialized) topBar.visibility = View.VISIBLE
         WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
-        loadingText.text = "تعذر تجهيز البث الآن، جرّب سيرفرًا آخر أو أعد المحاولة"
+        loadingText.text = "تعذر تجهيز البث الآن — اضغط لإعادة المحاولة"
         loading.visibility = View.VISIBLE
     }
+
+    private fun resolveAndLoad(matchPage: String) {
+        loading.visibility = View.VISIBLE
+        topBar.visibility = View.VISIBLE
+        loadingText.text = "نبحث عن سيرفر بث متاح…"
+        Thread {
+            val player = LiveSourceResolver.resolve(matchPage)
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (player == null) {
+                    showFailure()
+                } else {
+                    // Giving the frame its original page as base keeps normal
+                    // provider referrer checks intact without exposing its ads UI.
+                    webView.loadDataWithBaseURL(
+                        player.referrerUrl,
+                        playerShell(player.embedUrl),
+                        "text/html",
+                        "UTF-8",
+                        null,
+                    )
+                }
+            }
+        }.start()
+    }
+
+    private fun playerShell(embedUrl: String): String = """
+        <!doctype html>
+        <html><head><meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>html,body,#playerContainer,iframe{margin:0;width:100%;height:100%;overflow:hidden;background:#0a0b10;border:0}</style>
+        </head><body><main id="playerContainer"><iframe src="$embedUrl" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></main></body></html>
+    """.trimIndent()
 
     private fun emptyResponse(): WebResourceResponse = WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream(ByteArray(0)))
 
     private fun isAdvertisingResource(host: String): Boolean {
         val lowered = host.lowercase()
-        return listOf("doubleclick", "googlesyndication", "googleadservices", "adservice", "adnxs", "exoclick", "popads", "popcash", "propellerads", "adsterra", "trafficjunky", "onclickads").any { lowered.contains(it) }
+        return listOf("doubleclick", "googlesyndication", "googleadservices", "adservice", "adnxs", "exoclick", "popads", "popcash", "propellerads", "adsterra", "trafficjunky", "onclickads", "ksks2.sportsonline", "histats", "whos.amung.us", "xstats.st").any { lowered.contains(it) }
     }
 
     private fun isTrustedSource(value: String): Boolean = runCatching {
