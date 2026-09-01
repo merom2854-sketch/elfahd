@@ -1,6 +1,6 @@
 {
   "version": "3.7.4",
   "versionCode": 36,
-  "apkUrl": "https://github.com/merom2854-sketch/elfahd/releases/download/v3.7.4/Al-Fahd-TV-3.7.4.apk",
+  "apkUrl": "https://github.com/merom2854-sketch/elfahd/releases/download/v3.7.4/app-release.apk",
   "releaseNotes": "إصلاح تشغيل المباريات: مسار بث مباشر جديد مع إعادة محاولة تلقائية."
 }
