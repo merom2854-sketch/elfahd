@@ -15,9 +15,30 @@ data class CatalogItem(
     val href: String,
     val image: String,
     val kind: CatalogKind,
+    val managed: ManagedContent? = null,
 )
 
-data class Episode(val number: String, val link: String)
+data class ManagedEpisode(
+    val number: String,
+    val title: String = "",
+    val mediaUrl: String = "",
+    val fallbackMediaUrl: String = "",
+)
+
+data class ManagedContent(
+    val description: String = "",
+    val actors: List<Actor> = emptyList(),
+    val mediaUrl: String = "",
+    val fallbackMediaUrl: String = "",
+    val episodes: List<ManagedEpisode> = emptyList(),
+)
+
+data class Episode(
+    val number: String,
+    val link: String = "",
+    val mediaUrl: String = "",
+    val fallbackMediaUrl: String = "",
+)
 data class Actor(val name: String, val image: String)
 data class SourceCategory(val id: String, val title: String, val url: String)
 
@@ -27,6 +48,7 @@ data class ContentDetail(
     val mediaUrl: String,
     val episodes: List<Episode>,
     val actors: List<Actor>,
+    val fallbackMediaUrl: String = "",
 )
 
 class NativeCatalogRepository {
@@ -37,6 +59,7 @@ class NativeCatalogRepository {
         // copy keeps the manual catalogue available even while the site is being redeployed.
         private const val MANUAL_API = "https://elfahd-tv.vercel.app/data/manual-content.json"
         private const val MANUAL_FALLBACK_API = "https://raw.githubusercontent.com/merom2854-sketch/elfahd/main/data/manual-content.json"
+        private const val MANUAL_ITEM_PREFIX = "https://elfahd-tv.vercel.app/content/manual"
         const val MOVIES = "https://akwam.it/movies"
         const val SERIES = "https://akwam.it/series"
         const val ANIME_MOVIES = "https://akwam.it/movies?category=30&section=0"
@@ -83,14 +106,19 @@ class NativeCatalogRepository {
             for (index in 0 until data.length()) {
                 val value = data.optJSONObject(index) ?: continue
                 val title = value.optString("title").trim()
-                val href = workerUrl(value.optString("href"))
+                val id = value.optString("id").trim()
+                val sourceUrl = value.optString("href", value.optString("sourceUrl")).trim()
+                val href = workerUrl(sourceUrl).takeIf { it.startsWith("https://") }
+                    ?: id.takeIf { it.isNotBlank() }?.let { "$MANUAL_ITEM_PREFIX/$it" }.orEmpty()
                 val image = highResolutionPoster(value.optString("image", value.optString("img")).trim())
                 val kind = when (value.optString("kind").lowercase()) {
                     "series", "tv" -> CatalogKind.SERIES
                     "anime" -> CatalogKind.ANIME
                     else -> CatalogKind.MOVIE
                 }
-                if (title.isNotBlank() && href.startsWith("https://")) add(CatalogItem(title, href, image, kind))
+                if (title.isNotBlank() && href.startsWith("https://")) {
+                    add(CatalogItem(title, href, image, kind, managedContent(value)))
+                }
             }
         }
     }
@@ -118,13 +146,37 @@ class NativeCatalogRepository {
     }
 
     suspend fun detail(item: CatalogItem): ContentDetail = withContext(Dispatchers.IO) {
+        item.managed?.let { managed ->
+            return@withContext ContentDetail(
+                title = item.title,
+                description = managed.description,
+                mediaUrl = managed.mediaUrl,
+                episodes = managed.episodes.map { episode ->
+                    Episode(
+                        number = episode.number,
+                        mediaUrl = episode.mediaUrl,
+                        fallbackMediaUrl = episode.fallbackMediaUrl,
+                    )
+                },
+                actors = managed.actors,
+                fallbackMediaUrl = managed.fallbackMediaUrl,
+            )
+        }
         val workerParsed = runCatching {
             parseDetail(request("$WORKER?action=series&series=${encode(workerUrl(item.href))}"), item.title)
         }.getOrElse { fallbackDetail(item.href, item.title) }
         // The source sometimes returns a successful JSON shell with no media or
         // episodes after a backend change. Fall back to parsing the public page
         // instead of showing a broken detail screen.
-        val parsed = if (workerParsed.mediaUrl.isBlank() || (item.kind != CatalogKind.MOVIE && workerParsed.episodes.isEmpty())) {
+        // A series detail normally has no direct media URL; its individual
+        // episodes hold the playable sources. Only replace its worker payload
+        // when the episode list itself is empty.
+        val needsFallback = if (item.kind == CatalogKind.MOVIE) {
+            workerParsed.mediaUrl.isBlank()
+        } else {
+            workerParsed.episodes.isEmpty()
+        }
+        val parsed = if (needsFallback) {
             runCatching { fallbackDetail(item.href, item.title) }.getOrDefault(workerParsed)
         } else workerParsed
         val online = onlineResolve(item.href)
@@ -249,7 +301,7 @@ class NativeCatalogRepository {
             .find(html)?.groupValues?.get(1)?.let(::plainText).orEmpty()
         val episodes = buildList {
             val seen = HashSet<String>()
-            for (match in Regex("""href=[\"'](https?://(?:ak\.sv|akwam\.it)/episode/[^\"']+)[\"']""", RegexOption.IGNORE_CASE).findAll(html)) {
+            for (match in Regex("""href=[\"'](https?://(?:ak\.sv|akwam\.it|akwam\.ss)/episode/[^\"']+)[\"']""", RegexOption.IGNORE_CASE).findAll(html)) {
                 val link = workerUrl(match.groupValues[1])
                 if (seen.add(link)) add(Episode("${size + 1}", link))
             }
@@ -280,6 +332,44 @@ class NativeCatalogRepository {
                 if (name.isNotBlank() && name.length <= 60) add(Actor(name, ""))
             }
         }.distinctBy { it.name }.take(12)
+    }
+
+    /**
+     * Entries from the control panel may contain only direct, authorised HTTPS
+     * media. They are deliberately kept separate from the public-catalogue
+     * parser so a dashboard edit never turns the app into a general proxy.
+     */
+    private fun managedContent(value: JSONObject): ManagedContent? {
+        val primary = directMediaUrl(value.optString("mediaUrl"))
+        val fallback = directMediaUrl(value.optString("fallbackMediaUrl"))
+        val episodes = buildList {
+            val source = value.optJSONArray("episodes") ?: return@buildList
+            for (index in 0 until source.length()) {
+                val episode = source.optJSONObject(index) ?: continue
+                val mediaUrl = directMediaUrl(episode.optString("mediaUrl"))
+                val fallbackUrl = directMediaUrl(episode.optString("fallbackMediaUrl"))
+                if (mediaUrl.isBlank() && fallbackUrl.isBlank()) continue
+                val number = episode.optString("number", "${index + 1}").trim().ifBlank { "${index + 1}" }
+                add(ManagedEpisode(number, episode.optString("title").trim(), mediaUrl, fallbackUrl))
+            }
+        }
+        if (primary.isBlank() && fallback.isBlank() && episodes.isEmpty()) return null
+        val actors = buildList {
+            val source = value.optJSONArray("actors") ?: return@buildList
+            for (index in 0 until source.length()) {
+                val objectValue = source.optJSONObject(index)
+                val name = (objectValue?.optString("name") ?: source.optString(index)).trim()
+                val image = directMediaUrl(objectValue?.optString("image").orEmpty())
+                if (name.isNotBlank()) add(Actor(name, image))
+            }
+        }.distinctBy { it.name }.take(12)
+        return ManagedContent(
+            description = value.optString("description").trim(),
+            actors = actors,
+            mediaUrl = primary,
+            fallbackMediaUrl = fallback,
+            episodes = episodes,
+        )
     }
     private fun workerUrl(value: String): String = value.trim().replaceFirst(Regex("^https://(?:ak\\.sv|akwam\\.ss)/", RegexOption.IGNORE_CASE), "https://akwam.it/")
     private fun resolveMediaUrl(value: String): String = runCatching {
@@ -312,6 +402,7 @@ class NativeCatalogRepository {
     }
     private fun isNoise(title: String): Boolean = title.equals("اكوام", true) || title.contains("web stats", true) || title.contains("إشعارات اكوام")
     private fun highResolutionPoster(value: String): String = value.replace(Regex("/thumb/\\d+x\\d+/"), "/")
+    private fun directMediaUrl(value: String): String = value.trim().takeIf { it.startsWith("https://", ignoreCase = true) }.orEmpty()
     private fun compatibleMediaUrl(value: String): String {
         val clean = value.trim().replaceFirst(Regex("^http://", RegexOption.IGNORE_CASE), "https://")
         return clean.takeIf { it.startsWith("https://") } ?: ""

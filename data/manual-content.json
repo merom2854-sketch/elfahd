@@ -1,4 +1,20 @@
 {
   "status": "success",
+  "updatedAt": "2026-09-02T00:00:00.000Z",
+  "sources": [
+    {
+      "id": "akwam-catalog",
+      "name": "الكتالوج الأساسي",
+      "role": "primary",
+      "monitored": true
+    },
+    {
+      "id": "licensed-manual",
+      "name": "محتوى يدوي مصرح",
+      "role": "fallback",
+      "monitored": false
+    }
+  ],
+  "coverage": [],
   "data": []
 }

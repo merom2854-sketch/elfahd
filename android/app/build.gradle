@@ -9,8 +9,8 @@ android {
         applicationId 'com.alfahdtv.app'
         minSdk 24
         targetSdk 34
-        versionCode 36
-        versionName '3.7.4'
+        versionCode 39
+        versionName '3.7.7'
         buildConfigField 'String', 'HOME_URL', '"https://elfahd-tv.vercel.app/#/home"'
         buildConfigField 'String', 'ALLOWED_HOST', '"elfahd-tv.vercel.app"'
     }
@@ -75,6 +75,7 @@ dependencies {
     // Media3 is bundled as local AARs, so its Guava classes must be declared explicitly.
     implementation 'com.google.guava:guava:31.1-android'
     implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    implementation 'androidx.browser:browser:1.4.0'
 }
 
 configurations.configureEach {

@@ -31,6 +31,7 @@ public final class PlayerActivity extends Activity {
     private ExoPlayer player;
     private PlayerView playerView;
     private String mediaUrl;
+    private String fallbackMediaUrl;
     private String mediaTitle;
     private String mediaImage;
     private boolean pipEnabled;
@@ -43,12 +44,14 @@ public final class PlayerActivity extends Activity {
     private long resumePosition;
     private boolean resumePlaying;
     private boolean pipTransition;
+    private boolean fallbackAttempted;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
         mediaUrl=getIntent().getStringExtra("media_url");
+        fallbackMediaUrl=getIntent().getStringExtra("media_fallback_url");
         mediaTitle=getIntent().getStringExtra("media_title");
         mediaImage=getIntent().getStringExtra("media_image");
         SharedPreferences resume=getSharedPreferences("player_resume",0);
@@ -97,11 +100,25 @@ public final class PlayerActivity extends Activity {
         player=new ExoPlayer.Builder(this).build();
         playerView.setPlayer(player);
         player.setMediaItem(MediaItem.fromUri(mediaUrl));
-        player.addListener(new Player.Listener(){@Override public void onPlayerError(PlaybackException error){Toast.makeText(PlayerActivity.this,"تعذر تشغيل الفيديو، حاول مرة أخرى",Toast.LENGTH_LONG).show();}@Override public void onPlaybackStateChanged(int state){if(state==Player.STATE_ENDED)getSharedPreferences("player_resume",0).edit().clear().apply();}});
+        player.addListener(new Player.Listener(){@Override public void onPlayerError(PlaybackException error){if(switchToFallback())return;Toast.makeText(PlayerActivity.this,"تعذر تشغيل الفيديو، حاول مرة أخرى",Toast.LENGTH_LONG).show();}@Override public void onPlaybackStateChanged(int state){if(state==Player.STATE_ENDED)getSharedPreferences("player_resume",0).edit().clear().apply();}});
         player.prepare();
         if(resumePosition>0)player.seekTo(resumePosition);
         player.setPlayWhenReady(autoplay||resumePlaying);
         updatePipParams();
+    }
+
+    /** Uses the dashboard-provided backup once only; it never retries arbitrary URLs. */
+    private boolean switchToFallback(){
+        if(fallbackAttempted||!isTrustedMediaUrl(fallbackMediaUrl)||player==null)return false;
+        fallbackAttempted=true;
+        mediaUrl=fallbackMediaUrl;
+        fallbackMediaUrl="";
+        resumePosition=0;
+        player.setMediaItem(MediaItem.fromUri(mediaUrl));
+        player.prepare();
+        player.setPlayWhenReady(true);
+        Toast.makeText(this,"جارٍ التبديل إلى المصدر الاحتياطي…",Toast.LENGTH_SHORT).show();
+        return true;
     }
 
     private void updatePipParams() {

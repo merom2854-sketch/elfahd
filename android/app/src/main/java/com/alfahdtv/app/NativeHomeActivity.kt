@@ -152,15 +152,19 @@ class NativeHomeActivity : ComponentActivity() {
 
     override fun onResume() { super.onResume(); resumeVersion++ }
 
-    private fun play(url: String, title: String, image: String? = null) {
+    private fun play(url: String, title: String, image: String?, fallbackUrl: String) {
         val uri = runCatching { Uri.parse(url) }.getOrNull()
         val trustedHttp = uri?.scheme.equals("http", true) && uri?.host?.lowercase()?.endsWith(".downet.net") == true
         if (!url.startsWith("https://") && !trustedHttp) { toast("مصدر المشاهدة غير متاح الآن"); return }
-        startActivity(Intent(this, PlayerActivity::class.java).putExtra("media_url", url).putExtra("media_title", title).putExtra("media_image", image ?: ""))
+        startActivity(Intent(this, PlayerActivity::class.java)
+            .putExtra("media_url", url)
+            .putExtra("media_fallback_url", fallbackUrl)
+            .putExtra("media_title", title)
+            .putExtra("media_image", image ?: ""))
     }
 
     private fun download(detail: ContentDetail) {
-        if (detail.mediaUrl.isBlank()) { toast("رابط التحميل غير متاح الآن"); return }
+        if (detail.mediaUrl.isBlank() && detail.fallbackMediaUrl.isBlank()) { toast("رابط التحميل غير متاح الآن"); return }
         if (Build.VERSION.SDK_INT <= 28 && ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
             pendingDownload = detail
             storagePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
@@ -169,7 +173,7 @@ class NativeHomeActivity : ComponentActivity() {
 
     private fun startDownload(detail: ContentDetail) {
         try {
-            VideoDownloads.enqueue(this, detail.mediaUrl, detail.title, "AlFahdTV/3.0 Android", "", "video/mp4")
+            VideoDownloads.enqueue(this, detail.mediaUrl.ifBlank { detail.fallbackMediaUrl }, detail.title, "AlFahdTV/3.0 Android", "", "video/mp4")
             toast("بدأ تحميل ${detail.title}")
         } catch (_: Exception) { toast("تعذر بدء التحميل") }
     }
@@ -194,7 +198,7 @@ private enum class FahdDestination(val label: String) { HOME("الرئيسية")
 @Composable
 private fun FahdApp(
     resumeVersion: Int,
-    onPlay: (String, String, String?) -> Unit,
+    onPlay: (String, String, String?, String) -> Unit,
     onDownload: (ContentDetail) -> Unit,
     onOpenDownloads: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -324,7 +328,7 @@ private fun FahdApp(
                     val title = when (allKind) { CatalogKind.MOVIE -> "وصل حديثًا"; CatalogKind.SERIES -> "مسلسلات مختارة"; CatalogKind.ANIME -> "الأنمي والكرتون"; null -> "عرض الكل" }
                     CatalogGrid(title, content, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding())
                 }
-                destination == FahdDestination.HOME -> HomeScreen(movies, series, anime, resume, loading, error, onRetry = { reloadKey++ }, onSelect = { selected = it }, onResume = { resume?.let { onPlay(it.url, it.title, it.image) } }, onViewAll = { allKind = it }, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onTelegram = { onOpenExternal("https://t.me/elfahd_tv") }, contentBottomPadding = padding.calculateBottomPadding())
+                destination == FahdDestination.HOME -> HomeScreen(movies, series, anime, resume, loading, error, onRetry = { reloadKey++ }, onSelect = { selected = it }, onResume = { resume?.let { onPlay(it.url, it.title, it.image, "") } }, onViewAll = { allKind = it }, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onTelegram = { onOpenExternal("https://t.me/elfahd_tv") }, contentBottomPadding = padding.calculateBottomPadding())
                 destination == FahdDestination.MOVIES -> CatalogGrid("الأفلام", filteredMovies, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding(), movieCategories, selectedMovieCategory) { chooseCategory(CatalogKind.MOVIE, it) }
                 destination == FahdDestination.SERIES -> CatalogGrid("المسلسلات", filteredSeries, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding(), seriesCategories, selectedSeriesCategory) { chooseCategory(CatalogKind.SERIES, it) }
                 destination == FahdDestination.CHANNELS -> ChannelsScreen(onBack = { destination = FahdDestination.HOME }, onOpenLive = onOpenLive, onOpenExternal = onOpenExternal, bottomPadding = padding.calculateBottomPadding())
@@ -558,7 +562,7 @@ private fun DetailScreen(
     onRecordHistory: () -> Unit,
     onRelated: (CatalogItem) -> Unit,
     onBack: () -> Unit,
-    onPlay: (String, String, String?) -> Unit,
+    onPlay: (String, String, String?, String) -> Unit,
     onDownload: (ContentDetail) -> Unit,
 ) {
     var detail by remember(item.href) { mutableStateOf<ContentDetail?>(null) }
@@ -586,8 +590,8 @@ private fun DetailScreen(
         detail?.let { loaded ->
             item {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = { onRecordHistory(); onPlay(loaded.mediaUrl, loaded.title, item.image) }, enabled = loaded.mediaUrl.isNotBlank(), modifier = Modifier.weight(1.25f).height(52.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = FahdColors.Red)) { Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("شاهد الآن", fontWeight = FontWeight.Black) }
-                    OutlinedButton(onClick = { onDownload(loaded) }, enabled = loaded.mediaUrl.isNotBlank(), modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.Download, null); Spacer(Modifier.width(6.dp)); Text("تحميل") }
+            Button(onClick = { onRecordHistory(); onPlay(loaded.mediaUrl.ifBlank { loaded.fallbackMediaUrl }, loaded.title, item.image, if (loaded.mediaUrl.isBlank()) "" else loaded.fallbackMediaUrl) }, enabled = loaded.mediaUrl.isNotBlank() || loaded.fallbackMediaUrl.isNotBlank(), modifier = Modifier.weight(1.25f).height(52.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = FahdColors.Red)) { Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("شاهد الآن", fontWeight = FontWeight.Black) }
+                    OutlinedButton(onClick = { onDownload(loaded) }, enabled = loaded.mediaUrl.isNotBlank() || loaded.fallbackMediaUrl.isNotBlank(), modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.Download, null); Spacer(Modifier.width(6.dp)); Text("تحميل") }
                 }
             }
             if (loaded.actors.isNotEmpty()) item { CastRow(loaded.actors) }
@@ -596,7 +600,7 @@ private fun DetailScreen(
                 Column(Modifier.padding(top = 14.dp)) {
                     Text("الحلقات", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        items(loaded.episodes) { episode -> OutlinedButton(onClick = { scope.launch { try { val episodeDetail = repository.episode(episode.link, "الحلقة ${episode.number}"); if (episodeDetail.mediaUrl.isNotBlank()) { onRecordHistory(); onPlay(episodeDetail.mediaUrl, "${loaded.title} • الحلقة ${episode.number}", item.image) } else Toast.makeText(context, "مصدر الحلقة غير متاح الآن", Toast.LENGTH_SHORT).show() } catch (_: Exception) { Toast.makeText(context, "تعذر فتح الحلقة، حاول مرة أخرى", Toast.LENGTH_SHORT).show() } } }, shape = RoundedCornerShape(12.dp)) { Text("الحلقة ${episode.number}") } }
+                        items(loaded.episodes) { episode -> OutlinedButton(onClick = { scope.launch { try { if (episode.mediaUrl.isNotBlank() || episode.fallbackMediaUrl.isNotBlank()) { onRecordHistory(); onPlay(episode.mediaUrl.ifBlank { episode.fallbackMediaUrl }, "${loaded.title} • الحلقة ${episode.number}", item.image, if (episode.mediaUrl.isBlank()) "" else episode.fallbackMediaUrl) } else { val episodeDetail = repository.episode(episode.link, "الحلقة ${episode.number}"); if (episodeDetail.mediaUrl.isNotBlank() || episodeDetail.fallbackMediaUrl.isNotBlank()) { onRecordHistory(); onPlay(episodeDetail.mediaUrl.ifBlank { episodeDetail.fallbackMediaUrl }, "${loaded.title} • الحلقة ${episode.number}", item.image, if (episodeDetail.mediaUrl.isBlank()) "" else episodeDetail.fallbackMediaUrl) } else Toast.makeText(context, "مصدر الحلقة غير متاح الآن", Toast.LENGTH_SHORT).show() } } catch (_: Exception) { Toast.makeText(context, "تعذر فتح الحلقة، حاول مرة أخرى", Toast.LENGTH_SHORT).show() } } }, shape = RoundedCornerShape(12.dp)) { Text("الحلقة ${episode.number}") } }
                     }
                 }
             }
