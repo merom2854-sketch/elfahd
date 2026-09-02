@@ -1,6 +1,6 @@
 {
-  "version": "3.7.4",
-  "versionCode": 36,
-  "apkUrl": "https://github.com/merom2854-sketch/elfahd/releases/download/v3.7.4/app-release.apk",
-  "releaseNotes": "إصلاح تشغيل المباريات: مسار بث مباشر جديد مع إعادة محاولة تلقائية."
+  "version": "3.7.7",
+  "versionCode": 39,
+  "apkUrl": "https://github.com/merom2854-sketch/elfahd/releases/download/v3.7.7/app-release.apk",
+  "releaseNotes": "مركز تحكم للمحتوى، مصدر تشغيل احتياطي تلقائي، تحسينات استقرار المشغّل، ومتابعة حالة المصدر."
 }
