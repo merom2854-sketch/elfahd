@@ -1,6 +1,6 @@
 {
-  "version": "3.7.7",
-  "versionCode": 39,
-  "apkUrl": "https://github.com/merom2854-sketch/elfahd/releases/download/v3.7.7/app-release.apk",
-  "releaseNotes": "مركز تحكم للمحتوى، مصدر تشغيل احتياطي تلقائي، تحسينات استقرار المشغّل، ومتابعة حالة المصدر."
+  "version": "3.7.8",
+  "versionCode": 40,
+  "apkUrl": "https://github.com/merom2854-sketch/elfahd/releases/download/v3.7.8/app-release.apk",
+  "releaseNotes": "اختيار مسلسل من الكتالوج وإضافة الحلقات الناقصة مع الاحتفاظ بالحلقات الأصلية."
 }
