@@ -31,6 +31,8 @@ data class ManagedContent(
     val mediaUrl: String = "",
     val fallbackMediaUrl: String = "",
     val episodes: List<ManagedEpisode> = emptyList(),
+    /** Keep the catalogue's existing episodes, then overlay dashboard episodes. */
+    val extendsSource: Boolean = false,
 )
 
 data class Episode(
@@ -146,22 +148,21 @@ class NativeCatalogRepository {
     }
 
     suspend fun detail(item: CatalogItem): ContentDetail = withContext(Dispatchers.IO) {
-        item.managed?.let { managed ->
-            return@withContext ContentDetail(
-                title = item.title,
-                description = managed.description,
-                mediaUrl = managed.mediaUrl,
-                episodes = managed.episodes.map { episode ->
-                    Episode(
-                        number = episode.number,
-                        mediaUrl = episode.mediaUrl,
-                        fallbackMediaUrl = episode.fallbackMediaUrl,
-                    )
-                },
-                actors = managed.actors,
-                fallbackMediaUrl = managed.fallbackMediaUrl,
-            )
+        val managed = item.managed
+        if (managed != null && !managed.extendsSource) {
+            return@withContext managedDetail(item, managed)
         }
+        val sourceDetail = if (managed?.extendsSource == true) {
+            // A manually supplied missing episode must remain usable even if the
+            // catalogue happens to be unavailable at this moment.
+            runCatching { sourceDetail(item) }.getOrDefault(ContentDetail(item.title, "", "", emptyList(), emptyList()))
+        } else {
+            sourceDetail(item)
+        }
+        if (managed != null) mergeManagedDetail(item, sourceDetail, managed) else sourceDetail
+    }
+
+    private fun sourceDetail(item: CatalogItem): ContentDetail {
         val workerParsed = runCatching {
             parseDetail(request("$WORKER?action=series&series=${encode(workerUrl(item.href))}"), item.title)
         }.getOrElse { fallbackDetail(item.href, item.title) }
@@ -188,7 +189,7 @@ class NativeCatalogRepository {
             mediaUrl = playable,
             actors = if (onlineActors.isNotEmpty()) onlineActors else parsed.actors,
         )
-        if (resolved.actors.isNotEmpty()) resolved else resolved.copy(actors = metadataActors(item.title, item.kind))
+        return if (resolved.actors.isNotEmpty()) resolved else resolved.copy(actors = metadataActors(item.title, item.kind))
     }
 
     suspend fun episode(link: String, fallbackTitle: String): ContentDetail = withContext(Dispatchers.IO) {
@@ -342,6 +343,7 @@ class NativeCatalogRepository {
     private fun managedContent(value: JSONObject): ManagedContent? {
         val primary = directMediaUrl(value.optString("mediaUrl"))
         val fallback = directMediaUrl(value.optString("fallbackMediaUrl"))
+        val extendsSource = value.optBoolean("extendSource", false)
         val episodes = buildList {
             val source = value.optJSONArray("episodes") ?: return@buildList
             for (index in 0 until source.length()) {
@@ -353,7 +355,7 @@ class NativeCatalogRepository {
                 add(ManagedEpisode(number, episode.optString("title").trim(), mediaUrl, fallbackUrl))
             }
         }
-        if (primary.isBlank() && fallback.isBlank() && episodes.isEmpty()) return null
+        if (primary.isBlank() && fallback.isBlank() && episodes.isEmpty() && !extendsSource) return null
         val actors = buildList {
             val source = value.optJSONArray("actors") ?: return@buildList
             for (index in 0 until source.length()) {
@@ -369,6 +371,47 @@ class NativeCatalogRepository {
             mediaUrl = primary,
             fallbackMediaUrl = fallback,
             episodes = episodes,
+            extendsSource = extendsSource,
+        )
+    }
+
+    private fun managedDetail(item: CatalogItem, managed: ManagedContent): ContentDetail = ContentDetail(
+        title = item.title,
+        description = managed.description,
+        mediaUrl = managed.mediaUrl,
+        episodes = managed.episodes.map { episode ->
+            Episode(
+                number = episode.number,
+                mediaUrl = episode.mediaUrl,
+                fallbackMediaUrl = episode.fallbackMediaUrl,
+            )
+        },
+        actors = managed.actors,
+        fallbackMediaUrl = managed.fallbackMediaUrl,
+    )
+
+    private fun mergeManagedDetail(item: CatalogItem, source: ContentDetail, managed: ManagedContent): ContentDetail {
+        val manualByNumber = managed.episodes.associateBy { it.number }
+        val mergedEpisodes = buildList {
+            val handled = HashSet<String>()
+            for (episode in source.episodes) {
+                val manual = manualByNumber[episode.number]
+                if (manual == null) add(episode) else {
+                    handled += manual.number
+                    add(Episode(manual.number, episode.link, manual.mediaUrl, manual.fallbackMediaUrl))
+                }
+            }
+            for (manual in managed.episodes) if (handled.add(manual.number)) {
+                add(Episode(manual.number, mediaUrl = manual.mediaUrl, fallbackMediaUrl = manual.fallbackMediaUrl))
+            }
+        }.sortedWith(compareBy<Episode> { it.number.toIntOrNull() ?: Int.MAX_VALUE }.thenBy { it.number })
+        return source.copy(
+            title = source.title.ifBlank { item.title },
+            description = managed.description.ifBlank { source.description },
+            mediaUrl = managed.mediaUrl.ifBlank { source.mediaUrl },
+            episodes = mergedEpisodes,
+            actors = if (managed.actors.isNotEmpty()) managed.actors else source.actors,
+            fallbackMediaUrl = managed.fallbackMediaUrl.ifBlank { source.fallbackMediaUrl },
         )
     }
     private fun workerUrl(value: String): String = value.trim().replaceFirst(Regex("^https://(?:ak\\.sv|akwam\\.ss)/", RegexOption.IGNORE_CASE), "https://akwam.it/")
