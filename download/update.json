@@ -1,6 +1,6 @@
 {
-  "version": "3.7.8",
-  "versionCode": 40,
-  "apkUrl": "https://github.com/merom2854-sketch/elfahd/releases/download/v3.7.8/app-release.apk",
-  "releaseNotes": "اختيار مسلسل من الكتالوج وإضافة الحلقات الناقصة مع الاحتفاظ بالحلقات الأصلية."
+  "version": "3.7.9",
+  "versionCode": 41,
+  "apkUrl": "https://github.com/merom2854-sketch/elfahd/releases/download/v3.7.9/app-release.apk",
+  "releaseNotes": "بطاقات أبطال العمل بصورهم، دوران تلقائي للمشغّل، واختيار الجودة للمصادر التي تدعم جودات متعددة."
 }

@@ -57,6 +57,9 @@ class NativeCatalogRepository {
     companion object {
         private const val WORKER = "https://akwam-stream-fetcher.meroo3292.workers.dev/"
         private const val ONLINE_RESOLVER = "https://elfahd-tv.vercel.app/api/resolve"
+        // TMDB credentials stay on Railway. The APK only asks our metadata endpoint
+        // for a small, cached list of public cast names and profile images.
+        private const val METADATA_API = "https://elfahd-production.up.railway.app"
         // This data is hosted with the public site, not on a Railway runtime. The GitHub
         // copy keeps the manual catalogue available even while the site is being redeployed.
         private const val MANUAL_API = "https://elfahd-tv.vercel.app/data/manual-content.json"
@@ -189,7 +192,11 @@ class NativeCatalogRepository {
             mediaUrl = playable,
             actors = if (onlineActors.isNotEmpty()) onlineActors else parsed.actors,
         )
-        return if (resolved.actors.isNotEmpty()) resolved else resolved.copy(actors = metadataActors(item.title, item.kind))
+        // The catalogue normally provides names only. Prefer our server-side TMDB
+        // enrichment when it is available, then gracefully retain those names if
+        // metadata is unavailable or a title cannot be matched.
+        val enrichedActors = metadataActors(item.title, item.kind)
+        return if (enrichedActors.isNotEmpty()) resolved.copy(actors = enrichedActors) else resolved
     }
 
     suspend fun episode(link: String, fallbackTitle: String): ContentDetail = withContext(Dispatchers.IO) {
@@ -315,10 +322,21 @@ class NativeCatalogRepository {
         .replace("&amp;", "&").replace("&quot;", "\"").replace("&#039;", "'")
         .replace(Regex("\\s+"), " ").trim()
 
-    // The source parser already supplies actor names when available. Do not make a content
-    // page depend on a separate metadata server merely to enrich those names with photos.
-    @Suppress("UNUSED_PARAMETER")
-    private fun metadataActors(title: String, kind: CatalogKind): List<Actor> = emptyList()
+    private fun metadataActors(title: String, kind: CatalogKind): List<Actor> = runCatching {
+        val payload = request(
+            "$METADATA_API/v1/metadata?title=${encode(title)}&kind=${encode(kind.name.lowercase())}",
+        )
+        if (payload.optString("status") != "success") return@runCatching emptyList()
+        val values = payload.optJSONObject("data")?.optJSONArray("actors") ?: return@runCatching emptyList()
+        buildList {
+            for (index in 0 until values.length()) {
+                val value = values.optJSONObject(index) ?: continue
+                val name = value.optString("name").trim()
+                val image = value.optString("image").trim().takeIf { it.startsWith("https://") }.orEmpty()
+                if (name.isNotBlank()) add(Actor(name, image))
+            }
+        }.distinctBy { it.name }.take(12)
+    }.getOrDefault(emptyList())
 
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
     private fun onlineResolve(value: String): JSONObject? = runCatching {

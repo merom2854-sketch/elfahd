@@ -612,15 +612,25 @@ private fun DetailScreen(
 @Composable
 private fun CastRow(actors: List<Actor>) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp)) {
-        Text("أبطال العمل", style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(8.dp))
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(end = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("أبطال العمل", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.weight(1f))
+            Text("${actors.size} ممثل", color = FahdColors.Muted, fontSize = 12.sp)
+        }
+        Spacer(Modifier.height(10.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(11.dp), contentPadding = PaddingValues(end = 4.dp)) {
             items(actors, key = { it.name }) { actor ->
-                Column(Modifier.width(116.dp).clip(RoundedCornerShape(15.dp)).background(FahdColors.SurfaceHigh).padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (actor.image.isNotBlank()) AsyncImage(actor.image, actor.name, Modifier.size(72.dp).clip(CircleShape), contentScale = ContentScale.Crop)
-                    else Box(Modifier.size(72.dp).clip(CircleShape).background(FahdColors.Divider), contentAlignment = Alignment.Center) { Text(actor.name.take(1), color = FahdColors.Muted, fontSize = 24.sp, fontWeight = FontWeight.Bold) }
-                    Spacer(Modifier.height(7.dp))
-                    Text(actor.name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+                Column(Modifier.width(122.dp).clip(RoundedCornerShape(17.dp)).background(FahdColors.SurfaceHigh)) {
+                    Box(Modifier.fillMaxWidth().height(138.dp).background(FahdColors.Divider)) {
+                        if (actor.image.isNotBlank()) {
+                            AsyncImage(actor.image, actor.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        } else {
+                            Text(actor.name.take(1), color = FahdColors.Muted, fontSize = 34.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.Center))
+                        }
+                        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .58f)))))
+                        Text("ممثل", color = Color.White.copy(alpha = .85f), fontSize = 10.sp, modifier = Modifier.align(Alignment.BottomStart).padding(8.dp))
+                    }
+                    Text(actor.name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 9.dp))
                 }
             }
         }

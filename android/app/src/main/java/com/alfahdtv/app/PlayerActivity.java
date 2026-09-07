@@ -1,6 +1,7 @@
 package com.alfahdtv.app;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.PictureInPictureParams;
 import android.content.res.Configuration;
 import android.content.pm.ActivityInfo;
@@ -22,13 +23,25 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.C;
+import androidx.media3.common.Format;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
+import androidx.media3.common.TrackGroup;
+import androidx.media3.common.TrackSelectionOverride;
+import androidx.media3.common.Tracks;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.ui.PlayerView;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 
 public final class PlayerActivity extends Activity {
     private ExoPlayer player;
+    private DefaultTrackSelector trackSelector;
     private PlayerView playerView;
     private String mediaUrl;
     private String fallbackMediaUrl;
@@ -36,7 +49,6 @@ public final class PlayerActivity extends Activity {
     private String mediaImage;
     private boolean pipEnabled;
     private boolean autoplay;
-    private boolean landscape;
     private TextView seekHint;
     private long lastTapAt;
     private float lastTapX;
@@ -58,14 +70,19 @@ public final class PlayerActivity extends Activity {
         if(mediaUrl!=null&&mediaUrl.equals(resume.getString("url","")))resumePosition=resume.getLong("position",0);
         pipEnabled=getSharedPreferences("settings",0).getBoolean("pip",true);
         autoplay=getSharedPreferences("settings",0).getBoolean("autoplay",true);
-        landscape=getResources().getConfiguration().orientation==Configuration.ORIENTATION_LANDSCAPE;
+        // The player follows the device in either direction instead of forcing the
+        // viewer to press a fullscreen button. This applies only to this Activity.
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
         if(getSharedPreferences("settings",0).getBoolean("secure",true))getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         playerView=(PlayerView)getLayoutInflater().inflate(R.layout.player_view,null);
         View videoSurface=playerView.getVideoSurfaceView();
         if(videoSurface!=null){videoSurface.setClickable(true);videoSurface.setFocusable(true);videoSurface.setOnTouchListener((view,event)->{handleOverlayTouch(event);return true;});}
         playerView.setUseController(true);
-        playerView.setControllerShowTimeoutMs(3500);
+        playerView.setControllerShowTimeoutMs(4200);
         playerView.setControllerAutoShow(true);
+        playerView.setControllerHideOnTouch(true);
+        playerView.setKeepContentOnPlayerReset(true);
+        playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING);
         setContentView(buildPlayerLayout());
         updatePipParams();
     }
@@ -77,7 +94,8 @@ public final class PlayerActivity extends Activity {
         LinearLayout top=new LinearLayout(this);topOverlay=top;top.setOrientation(LinearLayout.HORIZONTAL);top.setGravity(Gravity.CENTER_VERTICAL);top.setPadding(dp(10),dp(8),dp(10),dp(8));top.setBackgroundResource(R.drawable.top_overlay);
         ImageButton back=playerButton(R.drawable.ic_player_back,"رجوع");back.setOnClickListener(v->finish());top.addView(back,new LinearLayout.LayoutParams(dp(48),dp(48)));
         TextView title=AppUi.text(this,mediaTitle==null||mediaTitle.trim().isEmpty()?"الفهد TV":mediaTitle,16,Color.WHITE);title.setTypeface(null,1);title.setSingleLine(true);title.setEllipsize(android.text.TextUtils.TruncateAt.END);LinearLayout.LayoutParams titleParams=new LinearLayout.LayoutParams(0,dp(48),1);titleParams.setMargins(dp(9),0,dp(9),0);top.addView(title,titleParams);
-        ImageButton rotate=playerButton(R.drawable.ic_player_rotate,landscape?"تصغير الشاشة":"تدوير وتكبير الشاشة");rotate.setOnClickListener(v->toggleOrientation());top.addView(rotate,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        ImageButton rotate=playerButton(R.drawable.ic_player_rotate,"تدوير الشاشة تلقائيًا");rotate.setOnClickListener(v->enableAutoRotation());top.addView(rotate,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        ImageButton quality=playerButton(R.drawable.ic_player_quality,"اختيار جودة الفيديو");quality.setOnClickListener(v->showQualityPicker());top.addView(quality,new LinearLayout.LayoutParams(dp(48),dp(48)));
         if(Build.VERSION.SDK_INT>=26&&pipEnabled){ImageButton pip=playerButton(R.drawable.ic_player_pip,"صورة داخل صورة");pip.setOnClickListener(v->enterPip());top.addView(pip,new LinearLayout.LayoutParams(dp(48),dp(48)));}
         FrameLayout.LayoutParams topParams=new FrameLayout.LayoutParams(-1,dp(72),Gravity.TOP);root.addView(top,topParams);
         playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener)visibility->{
@@ -97,7 +115,8 @@ public final class PlayerActivity extends Activity {
 
     private void preparePlayer() {
         if(!isTrustedMediaUrl(mediaUrl)){finish();return;}
-        player=new ExoPlayer.Builder(this).build();
+        trackSelector=new DefaultTrackSelector(this);
+        player=new ExoPlayer.Builder(this).setTrackSelector(trackSelector).build();
         playerView.setPlayer(player);
         player.setMediaItem(MediaItem.fromUri(mediaUrl));
         player.addListener(new Player.Listener(){@Override public void onPlayerError(PlaybackException error){if(switchToFallback())return;Toast.makeText(PlayerActivity.this,"تعذر تشغيل الفيديو، حاول مرة أخرى",Toast.LENGTH_LONG).show();}@Override public void onPlaybackStateChanged(int state){if(state==Player.STATE_ENDED)getSharedPreferences("player_resume",0).edit().clear().apply();}});
@@ -114,6 +133,7 @@ public final class PlayerActivity extends Activity {
         mediaUrl=fallbackMediaUrl;
         fallbackMediaUrl="";
         resumePosition=0;
+        selectAutomaticQuality(false);
         player.setMediaItem(MediaItem.fromUri(mediaUrl));
         player.prepare();
         player.setPlayWhenReady(true);
@@ -172,9 +192,79 @@ public final class PlayerActivity extends Activity {
         edit.apply();
     }
 
-    private void toggleOrientation(){
-        landscape=!landscape;
-        setRequestedOrientation(landscape?ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE:ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+    private void enableAutoRotation(){
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
+        Toast.makeText(this,"الدوران التلقائي مفعّل",Toast.LENGTH_SHORT).show();
+    }
+
+    private static final class QualityOption {
+        final TrackGroup group;
+        final int trackIndex;
+        final int height;
+        final int bitrate;
+        final String label;
+        QualityOption(TrackGroup group,int trackIndex,int height,int bitrate,String label){this.group=group;this.trackIndex=trackIndex;this.height=height;this.bitrate=bitrate;this.label=label;}
+    }
+
+    private void showQualityPicker(){
+        if(player==null){Toast.makeText(this,"جارٍ تجهيز المشغّل…",Toast.LENGTH_SHORT).show();return;}
+        List<QualityOption> options=availableQualityOptions();
+        if(options.isEmpty()){
+            Toast.makeText(this,"هذا المصدر يوفّر جودة واحدة فقط",Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String[] labels=new String[options.size()+1];
+        labels[0]="تلقائي — أفضل جودة حسب الإنترنت";
+        for(int i=0;i<options.size();i++)labels[i+1]=options.get(i).label;
+        new AlertDialog.Builder(this)
+            .setTitle("جودة الفيديو")
+            .setSingleChoiceItems(labels,0,(dialog,which)->{
+                if(which==0)selectAutomaticQuality(true);else selectQuality(options.get(which-1));
+                dialog.dismiss();
+            })
+            .setNegativeButton("إلغاء",null)
+            .show();
+    }
+
+    private List<QualityOption> availableQualityOptions(){
+        ArrayList<QualityOption> result=new ArrayList<>();
+        if(player==null)return result;
+        Tracks tracks=player.getCurrentTracks();
+        for(Tracks.Group group:tracks.getGroups()){
+            if(group.getType()!=C.TRACK_TYPE_VIDEO)continue;
+            TrackGroup mediaGroup=group.getMediaTrackGroup();
+            for(int index=0;index<group.length;index++){
+                if(!group.isTrackSupported(index))continue;
+                Format format=group.getTrackFormat(index);
+                int height=format.height;
+                int bitrate=format.bitrate;
+                String label=height>0?height+"p":bitrate>0?Math.max(1,bitrate/1_000_000)+" Mbps":"جودة بديلة";
+                boolean duplicate=false;
+                for(QualityOption known:result)if(known.label.equals(label)){duplicate=true;break;}
+                if(!duplicate)result.add(new QualityOption(mediaGroup,index,height,bitrate,label));
+            }
+        }
+        Collections.sort(result,new Comparator<QualityOption>(){ @Override public int compare(QualityOption first,QualityOption second){int heightOrder=Integer.compare(second.height,first.height);return heightOrder!=0?heightOrder:Integer.compare(second.bitrate,first.bitrate);} });
+        return result;
+    }
+
+    private void selectQuality(QualityOption option){
+        if(player==null)return;
+        player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO,false)
+            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+            .addOverride(new TrackSelectionOverride(option.group,option.trackIndex))
+            .build());
+        Toast.makeText(this,"تم اختيار ${option.label}",Toast.LENGTH_SHORT).show();
+    }
+
+    private void selectAutomaticQuality(boolean showMessage){
+        if(player==null)return;
+        player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO,false)
+            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+            .build());
+        if(showMessage)Toast.makeText(this,"اختيار الجودة التلقائي مفعّل",Toast.LENGTH_SHORT).show();
     }
 
     private void showSeekHint(String text){
