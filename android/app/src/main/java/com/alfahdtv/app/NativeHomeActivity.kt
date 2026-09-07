@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -112,6 +113,16 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 data class ResumeInfo(val title: String, val url: String, val image: String, val position: Long, val duration: Long)
+data class PlaybackTarget(
+    val url: String,
+    val title: String,
+    val image: String?,
+    val fallbackUrl: String = "",
+    val nextUrl: String = "",
+    val nextFallbackUrl: String = "",
+    val nextTitle: String = "",
+    val nextResolverUrl: String = "",
+)
 
 class NativeHomeActivity : ComponentActivity() {
     private var pendingDownload: ContentDetail? = null
@@ -152,15 +163,19 @@ class NativeHomeActivity : ComponentActivity() {
 
     override fun onResume() { super.onResume(); resumeVersion++ }
 
-    private fun play(url: String, title: String, image: String?, fallbackUrl: String) {
-        val uri = runCatching { Uri.parse(url) }.getOrNull()
+    private fun play(target: PlaybackTarget) {
+        val uri = runCatching { Uri.parse(target.url) }.getOrNull()
         val trustedHttp = uri?.scheme.equals("http", true) && uri?.host?.lowercase()?.endsWith(".downet.net") == true
-        if (!url.startsWith("https://") && !trustedHttp) { toast("مصدر المشاهدة غير متاح الآن"); return }
+        if (!target.url.startsWith("https://") && !trustedHttp) { toast("مصدر المشاهدة غير متاح الآن"); return }
         startActivity(Intent(this, PlayerActivity::class.java)
-            .putExtra("media_url", url)
-            .putExtra("media_fallback_url", fallbackUrl)
-            .putExtra("media_title", title)
-            .putExtra("media_image", image ?: ""))
+            .putExtra("media_url", target.url)
+            .putExtra("media_fallback_url", target.fallbackUrl)
+            .putExtra("media_title", target.title)
+            .putExtra("media_image", target.image ?: "")
+            .putExtra("next_media_url", target.nextUrl)
+            .putExtra("next_media_fallback_url", target.nextFallbackUrl)
+            .putExtra("next_media_title", target.nextTitle)
+            .putExtra("next_resolver_url", target.nextResolverUrl))
     }
 
     private fun download(detail: ContentDetail) {
@@ -198,7 +213,7 @@ private enum class FahdDestination(val label: String) { HOME("الرئيسية")
 @Composable
 private fun FahdApp(
     resumeVersion: Int,
-    onPlay: (String, String, String?, String) -> Unit,
+    onPlay: (PlaybackTarget) -> Unit,
     onDownload: (ContentDetail) -> Unit,
     onOpenDownloads: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -328,7 +343,7 @@ private fun FahdApp(
                     val title = when (allKind) { CatalogKind.MOVIE -> "وصل حديثًا"; CatalogKind.SERIES -> "مسلسلات مختارة"; CatalogKind.ANIME -> "الأنمي والكرتون"; null -> "عرض الكل" }
                     CatalogGrid(title, content, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding())
                 }
-                destination == FahdDestination.HOME -> HomeScreen(movies, series, anime, resume, loading, error, onRetry = { reloadKey++ }, onSelect = { selected = it }, onResume = { resume?.let { onPlay(it.url, it.title, it.image, "") } }, onViewAll = { allKind = it }, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onTelegram = { onOpenExternal("https://t.me/elfahd_tv") }, contentBottomPadding = padding.calculateBottomPadding())
+                destination == FahdDestination.HOME -> HomeScreen(movies, series, anime, resume, loading, error, onRetry = { reloadKey++ }, onSelect = { selected = it }, onResume = { resume?.let { onPlay(PlaybackTarget(it.url, it.title, it.image)) } }, onViewAll = { allKind = it }, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onTelegram = { onOpenExternal("https://t.me/elfahd_tv") }, contentBottomPadding = padding.calculateBottomPadding())
                 destination == FahdDestination.MOVIES -> CatalogGrid("الأفلام", filteredMovies, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding(), movieCategories, selectedMovieCategory) { chooseCategory(CatalogKind.MOVIE, it) }
                 destination == FahdDestination.SERIES -> CatalogGrid("المسلسلات", filteredSeries, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding(), seriesCategories, selectedSeriesCategory) { chooseCategory(CatalogKind.SERIES, it) }
                 destination == FahdDestination.CHANNELS -> ChannelsScreen(onBack = { destination = FahdDestination.HOME }, onOpenLive = onOpenLive, onOpenExternal = onOpenExternal, bottomPadding = padding.calculateBottomPadding())
@@ -562,7 +577,7 @@ private fun DetailScreen(
     onRecordHistory: () -> Unit,
     onRelated: (CatalogItem) -> Unit,
     onBack: () -> Unit,
-    onPlay: (String, String, String?, String) -> Unit,
+    onPlay: (PlaybackTarget) -> Unit,
     onDownload: (ContentDetail) -> Unit,
 ) {
     var detail by remember(item.href) { mutableStateOf<ContentDetail?>(null) }
@@ -590,7 +605,7 @@ private fun DetailScreen(
         detail?.let { loaded ->
             item {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = { onRecordHistory(); onPlay(loaded.mediaUrl.ifBlank { loaded.fallbackMediaUrl }, loaded.title, item.image, if (loaded.mediaUrl.isBlank()) "" else loaded.fallbackMediaUrl) }, enabled = loaded.mediaUrl.isNotBlank() || loaded.fallbackMediaUrl.isNotBlank(), modifier = Modifier.weight(1.25f).height(52.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = FahdColors.Red)) { Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("شاهد الآن", fontWeight = FontWeight.Black) }
+            Button(onClick = { onRecordHistory(); onPlay(PlaybackTarget(loaded.mediaUrl.ifBlank { loaded.fallbackMediaUrl }, loaded.title, item.image, if (loaded.mediaUrl.isBlank()) "" else loaded.fallbackMediaUrl)) }, enabled = loaded.mediaUrl.isNotBlank() || loaded.fallbackMediaUrl.isNotBlank(), modifier = Modifier.weight(1.25f).height(52.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = FahdColors.Red)) { Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("شاهد الآن", fontWeight = FontWeight.Black) }
                     OutlinedButton(onClick = { onDownload(loaded) }, enabled = loaded.mediaUrl.isNotBlank() || loaded.fallbackMediaUrl.isNotBlank(), modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.Download, null); Spacer(Modifier.width(6.dp)); Text("تحميل") }
                 }
             }
@@ -600,7 +615,44 @@ private fun DetailScreen(
                 Column(Modifier.padding(top = 14.dp)) {
                     Text("الحلقات", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        items(loaded.episodes) { episode -> OutlinedButton(onClick = { scope.launch { try { if (episode.mediaUrl.isNotBlank() || episode.fallbackMediaUrl.isNotBlank()) { onRecordHistory(); onPlay(episode.mediaUrl.ifBlank { episode.fallbackMediaUrl }, "${loaded.title} • الحلقة ${episode.number}", item.image, if (episode.mediaUrl.isBlank()) "" else episode.fallbackMediaUrl) } else { val episodeDetail = repository.episode(episode.link, "الحلقة ${episode.number}"); if (episodeDetail.mediaUrl.isNotBlank() || episodeDetail.fallbackMediaUrl.isNotBlank()) { onRecordHistory(); onPlay(episodeDetail.mediaUrl.ifBlank { episodeDetail.fallbackMediaUrl }, "${loaded.title} • الحلقة ${episode.number}", item.image, if (episodeDetail.mediaUrl.isBlank()) "" else episodeDetail.fallbackMediaUrl) } else Toast.makeText(context, "مصدر الحلقة غير متاح الآن", Toast.LENGTH_SHORT).show() } } catch (_: Exception) { Toast.makeText(context, "تعذر فتح الحلقة، حاول مرة أخرى", Toast.LENGTH_SHORT).show() } } }, shape = RoundedCornerShape(12.dp)) { Text("الحلقة ${episode.number}") } }
+                        itemsIndexed(loaded.episodes, key = { _, episode -> "${episode.number}|${episode.link}|${episode.mediaUrl}" }) { index, episode ->
+                            OutlinedButton(
+                                onClick = {
+                                    scope.launch {
+                                        try {
+                                            val resolved = if (episode.mediaUrl.isNotBlank() || episode.fallbackMediaUrl.isNotBlank()) {
+                                                ContentDetail("", "", episode.mediaUrl, emptyList(), emptyList(), episode.fallbackMediaUrl)
+                                            } else repository.episode(episode.link, "الحلقة ${episode.number}")
+                                            val url = resolved.mediaUrl.ifBlank { resolved.fallbackMediaUrl }
+                                            if (url.isBlank()) {
+                                                Toast.makeText(context, "مصدر الحلقة غير متاح الآن", Toast.LENGTH_SHORT).show()
+                                                return@launch
+                                            }
+                                            val following = loaded.episodes.getOrNull(index + 1)
+                                            val nextUrl = following?.mediaUrl.orEmpty().ifBlank { following?.fallbackMediaUrl.orEmpty() }
+                                            val nextFallback = if (following?.mediaUrl.isNullOrBlank()) "" else following?.fallbackMediaUrl.orEmpty()
+                                            val nextResolver = if (nextUrl.isBlank()) following?.link.orEmpty() else ""
+                                            onRecordHistory()
+                                            onPlay(
+                                                PlaybackTarget(
+                                                    url = url,
+                                                    title = "${loaded.title} • الحلقة ${episode.number}",
+                                                    image = item.image,
+                                                    fallbackUrl = if (resolved.mediaUrl.isBlank()) "" else resolved.fallbackMediaUrl,
+                                                    nextUrl = nextUrl,
+                                                    nextFallbackUrl = nextFallback,
+                                                    nextTitle = following?.let { "${loaded.title} • الحلقة ${it.number}" }.orEmpty(),
+                                                    nextResolverUrl = nextResolver,
+                                                ),
+                                            )
+                                        } catch (_: Exception) {
+                                            Toast.makeText(context, "تعذر فتح الحلقة، حاول مرة أخرى", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                            ) { Text("الحلقة ${episode.number}") }
+                        }
                     }
                 }
             }

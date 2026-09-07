@@ -1,6 +1,6 @@
 {
-  "version": "3.7.9",
-  "versionCode": 41,
-  "apkUrl": "https://github.com/merom2854-sketch/elfahd/releases/download/v3.7.9/app-release.apk",
-  "releaseNotes": "بطاقات أبطال العمل بصورهم، دوران تلقائي للمشغّل، واختيار الجودة للمصادر التي تدعم جودات متعددة."
+  "version": "3.8.0",
+  "versionCode": 42,
+  "apkUrl": "https://github.com/merom2854-sketch/elfahd/releases/download/v3.8.0/app-release.apk",
+  "releaseNotes": "مشغّل احترافي: سرعة تشغيل، ترجمات عند توفرها، قفل شاشة، تخطي مقدمة، والحلقة التالية تلقائيًا."
 }
