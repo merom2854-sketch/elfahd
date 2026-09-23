@@ -1,12 +1,12 @@
 {
-  "updatedAt": "2026-09-02T17:05:36.018Z",
+  "updatedAt": "2026-09-23T17:39:53.878Z",
   "sources": [
     {
       "id": "akwam-catalog",
       "name": "الكتالوج الأساسي",
-      "status": "up",
-      "lastChangedAt": "2026-09-02T17:05:36.018Z",
-      "message": "المصدر عاد للعمل"
+      "status": "down",
+      "lastChangedAt": "2026-09-23T17:39:53.878Z",
+      "message": "المصدر لا يستجيب الآن"
     }
   ]
 }
