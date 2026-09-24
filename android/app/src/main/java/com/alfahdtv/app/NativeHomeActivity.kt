@@ -234,7 +234,7 @@ private fun FahdApp(
     }
     var favoriteEntries by remember { mutableStateOf(library.getStringSet("favorites", emptySet()).orEmpty().toSet()) }
     var historyEntries by remember { mutableStateOf(library.getStringSet("history", emptySet()).orEmpty().toSet()) }
-    val repository = remember { NativeCatalogRepository() }
+    val repository = remember { NativeCatalogRepository(context.applicationContext) }
     var movies by remember { mutableStateOf<List<CatalogItem>>(emptyList()) }
     var series by remember { mutableStateOf<List<CatalogItem>>(emptyList()) }
     var anime by remember { mutableStateOf<List<CatalogItem>>(emptyList()) }
@@ -246,6 +246,7 @@ private fun FahdApp(
     var selectedSeriesCategory by remember { mutableStateOf<SourceCategory?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf(false) }
+    var emergencyMode by remember { mutableStateOf(false) }
     var destination by remember { mutableStateOf(FahdDestination.HOME) }
     var selected by remember { mutableStateOf<CatalogItem?>(null) }
     var searchOpen by remember { mutableStateOf(false) }
@@ -265,21 +266,39 @@ private fun FahdApp(
     }
 
     LaunchedEffect(reloadKey) {
-        loading = true; error = false
+        loading = true; error = false; emergencyMode = false
+        // Render the last known good catalogue immediately.  Network refreshes happen
+        // in the background, so a maintenance window never becomes an endless loader.
+        val cachedMovies = repository.cachedCatalog(CatalogKind.MOVIE)
+        val cachedSeries = repository.cachedCatalog(CatalogKind.SERIES)
+        val cachedAnime = repository.cachedCatalog(CatalogKind.ANIME)
+        if (cachedMovies.isNotEmpty() || cachedSeries.isNotEmpty() || cachedAnime.isNotEmpty()) {
+            movies = cachedMovies
+            series = cachedSeries
+            anime = cachedAnime
+            filteredMovies = movies
+            filteredSeries = series
+            emergencyMode = true
+            loading = false
+        }
         try {
             coroutineScope {
-                val movieTask = async { repository.catalog(NativeCatalogRepository.MOVIES, CatalogKind.MOVIE) }
-                val seriesTask = async { repository.catalog(NativeCatalogRepository.SERIES, CatalogKind.SERIES) }
-                val animeTask = async { repository.anime() }
+                val movieTask = async { repository.catalogLoad(NativeCatalogRepository.MOVIES, CatalogKind.MOVIE) }
+                val seriesTask = async { repository.catalogLoad(NativeCatalogRepository.SERIES, CatalogKind.SERIES) }
+                val animeTask = async { repository.animeLoad() }
                 val manualTask = async { repository.manualContent() }
                 val movieCategoriesTask = async { repository.categories(NativeCatalogRepository.MOVIES) }
                 val seriesCategoriesTask = async { repository.categories(NativeCatalogRepository.SERIES) }
                 val manual = manualTask.await()
-                movies = (manual.filter { it.kind == CatalogKind.MOVIE } + movieTask.await()).distinctBy { it.href }
-                series = (manual.filter { it.kind == CatalogKind.SERIES } + seriesTask.await()).distinctBy { it.href }
-                anime = (manual.filter { it.kind == CatalogKind.ANIME } + animeTask.await()).distinctBy { it.href }
+                val movieLoad = movieTask.await()
+                val seriesLoad = seriesTask.await()
+                val animeLoad = animeTask.await()
+                movies = (manual.filter { it.kind == CatalogKind.MOVIE } + movieLoad.items.ifEmpty { cachedMovies }).distinctBy { it.href }
+                series = (manual.filter { it.kind == CatalogKind.SERIES } + seriesLoad.items.ifEmpty { cachedSeries }).distinctBy { it.href }
+                anime = (manual.filter { it.kind == CatalogKind.ANIME } + animeLoad.items.ifEmpty { cachedAnime }).distinctBy { it.href }
                 filteredMovies = movies; filteredSeries = series
                 movieCategories = movieCategoriesTask.await(); seriesCategories = seriesCategoriesTask.await()
+                emergencyMode = !(movieLoad.sourceAvailable || seriesLoad.sourceAvailable || animeLoad.sourceAvailable)
             }
             error = movies.isEmpty() && series.isEmpty()
         } catch (_: Exception) { error = true }
@@ -290,11 +309,13 @@ private fun FahdApp(
         scope.launch {
             loading = true
             if (kind == CatalogKind.MOVIE) {
-                selectedMovieCategory = category
-                filteredMovies = if (category == null) movies else repository.catalog(category.url, CatalogKind.MOVIE)
+                val filtered = if (category == null) movies else repository.catalog(category.url, CatalogKind.MOVIE)
+                selectedMovieCategory = category?.takeIf { filtered.isNotEmpty() }
+                filteredMovies = if (category == null || filtered.isNotEmpty()) filtered else movies
             } else if (kind == CatalogKind.SERIES) {
-                selectedSeriesCategory = category
-                filteredSeries = if (category == null) series else repository.catalog(category.url, CatalogKind.SERIES)
+                val filtered = if (category == null) series else repository.catalog(category.url, CatalogKind.SERIES)
+                selectedSeriesCategory = category?.takeIf { filtered.isNotEmpty() }
+                filteredSeries = if (category == null || filtered.isNotEmpty()) filtered else series
             }
             loading = false
         }
@@ -343,7 +364,7 @@ private fun FahdApp(
                     val title = when (allKind) { CatalogKind.MOVIE -> "وصل حديثًا"; CatalogKind.SERIES -> "مسلسلات مختارة"; CatalogKind.ANIME -> "الأنمي والكرتون"; null -> "عرض الكل" }
                     CatalogGrid(title, content, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding())
                 }
-                destination == FahdDestination.HOME -> HomeScreen(movies, series, anime, resume, loading, error, onRetry = { reloadKey++ }, onSelect = { selected = it }, onResume = { resume?.let { onPlay(PlaybackTarget(it.url, it.title, it.image)) } }, onViewAll = { allKind = it }, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onTelegram = { onOpenExternal("https://t.me/elfahd_tv") }, contentBottomPadding = padding.calculateBottomPadding())
+                destination == FahdDestination.HOME -> HomeScreen(movies, series, anime, resume, loading, error, emergencyMode, onRetry = { reloadKey++ }, onSelect = { selected = it }, onResume = { resume?.let { onPlay(PlaybackTarget(it.url, it.title, it.image)) } }, onViewAll = { allKind = it }, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onTelegram = { onOpenExternal("https://t.me/elfahd_tv") }, contentBottomPadding = padding.calculateBottomPadding())
                 destination == FahdDestination.MOVIES -> CatalogGrid("الأفلام", filteredMovies, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding(), movieCategories, selectedMovieCategory) { chooseCategory(CatalogKind.MOVIE, it) }
                 destination == FahdDestination.SERIES -> CatalogGrid("المسلسلات", filteredSeries, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding(), seriesCategories, selectedSeriesCategory) { chooseCategory(CatalogKind.SERIES, it) }
                 destination == FahdDestination.CHANNELS -> ChannelsScreen(onBack = { destination = FahdDestination.HOME }, onOpenLive = onOpenLive, onOpenExternal = onOpenExternal, bottomPadding = padding.calculateBottomPadding())
@@ -361,6 +382,7 @@ private fun HomeScreen(
     resume: ResumeInfo?,
     loading: Boolean,
     error: Boolean,
+    emergencyMode: Boolean,
     onRetry: () -> Unit,
     onSelect: (CatalogItem) -> Unit,
     onResume: () -> Unit,
@@ -381,7 +403,8 @@ private fun HomeScreen(
         item {
             Hero(featured, featuredIndex, movies.size.coerceAtMost(8), onSelect, onSearch, onDownloads, onSettings)
         }
-        if (error) item { ErrorCard(onRetry) }
+        if (emergencyMode) item { EmergencyBanner(onRetry) }
+        if (error) item { ErrorCard(onRetry, emergencyMode) }
         if (loading) item { LoadingBlock() }
         if (!loading) {
             if (resume != null) item { ResumeSection(resume, onResume) }
@@ -601,7 +624,7 @@ private fun DetailScreen(
             }
         }
         if (loading) item { LoadingBlock() }
-        if (failed) item { ErrorCard { loading = true; failed = false; scope.launch { try { detail = repository.detail(item) } catch (_: Exception) { failed = true }; loading = false } } }
+        if (failed) item { ErrorCard(onRetry = { loading = true; failed = false; scope.launch { try { detail = repository.detail(item) } catch (_: Exception) { failed = true }; loading = false } }) }
         detail?.let { loaded ->
             item {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -784,7 +807,36 @@ private fun FahdBottomBar(selected: FahdDestination, onSelect: (FahdDestination)
 private fun LoadingBlock() { Box(Modifier.fillMaxWidth().height(220.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = FahdColors.Red, strokeWidth = 3.dp) } }
 
 @Composable
-private fun ErrorCard(onRetry: () -> Unit) { Column(Modifier.padding(18.dp).fillMaxWidth().clip(RoundedCornerShape(17.dp)).background(FahdColors.Surface).padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) { Text("تعذر تحميل المحتوى", fontWeight = FontWeight.Bold); Spacer(Modifier.height(10.dp)); Text("تأكد من الإنترنت وحاول مرة أخرى", color = FahdColors.Muted); Spacer(Modifier.height(15.dp)); Button(onClick = onRetry) { Text("إعادة المحاولة") } } }
+private fun EmergencyBanner(onRetry: () -> Unit) {
+    Surface(
+        modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp).fillMaxWidth(),
+        color = Color(0xFF282012),
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("وضع الطوارئ نشط", color = FahdColors.Gold, fontWeight = FontWeight.Black)
+                Spacer(Modifier.height(4.dp))
+                Text("المصدر الأساسي تحت الصيانة. نعرض آخر مكتبة محفوظة على جهازك.", color = FahdColors.Muted, fontSize = 12.sp)
+            }
+            OutlinedButton(onClick = onRetry, shape = RoundedCornerShape(10.dp)) { Text("إعادة المحاولة", fontSize = 11.sp) }
+        }
+    }
+}
+
+@Composable
+private fun ErrorCard(onRetry: () -> Unit, sourceUnavailable: Boolean = false) {
+    Column(
+        Modifier.padding(18.dp).fillMaxWidth().clip(RoundedCornerShape(17.dp)).background(FahdColors.Surface).padding(22.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(if (sourceUnavailable) "المصدر تحت الصيانة" else "تعذر تحميل المحتوى", fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(10.dp))
+        Text(if (sourceUnavailable) "لا توجد مكتبة محفوظة على هذا الجهاز بعد. جرّب مرة أخرى لاحقًا." else "تأكد من الإنترنت وحاول مرة أخرى", color = FahdColors.Muted, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(15.dp))
+        Button(onClick = onRetry) { Text("إعادة المحاولة") }
+    }
+}
 
 @Composable
 private fun EmptyMessage(message: String) { Box(Modifier.fillMaxWidth().fillMaxHeight(.65f), contentAlignment = Alignment.Center) { Text(message, color = FahdColors.Muted, textAlign = TextAlign.Center) } }

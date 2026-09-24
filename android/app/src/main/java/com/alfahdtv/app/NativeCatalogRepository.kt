@@ -1,7 +1,11 @@
 package com.alfahdtv.app
 
+import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -16,6 +20,12 @@ data class CatalogItem(
     val image: String,
     val kind: CatalogKind,
     val managed: ManagedContent? = null,
+)
+
+/** A catalogue response together with the availability of the remote source. */
+data class CatalogLoad(
+    val items: List<CatalogItem>,
+    val sourceAvailable: Boolean,
 )
 
 data class ManagedEpisode(
@@ -53,7 +63,9 @@ data class ContentDetail(
     val fallbackMediaUrl: String = "",
 )
 
-class NativeCatalogRepository {
+class NativeCatalogRepository(context: Context) {
+    private val emergencyCache = context.applicationContext.getSharedPreferences("emergency_catalog", Context.MODE_PRIVATE)
+
     companion object {
         private const val WORKER = "https://akwam-stream-fetcher.meroo3292.workers.dev/"
         private const val ONLINE_RESOLVER = "https://elfahd-tv.vercel.app/api/resolve"
@@ -73,12 +85,28 @@ class NativeCatalogRepository {
         private val responseCache = HashMap<String, Pair<Long, String>>()
     }
 
-    suspend fun catalog(source: String, kind: CatalogKind, limit: Int = 30): List<CatalogItem> = withContext(Dispatchers.IO) {
-        val payload = runCatching { request("$WORKER?action=genre&genre=${encode(source)}") }.getOrNull()
+    /**
+     * The public catalogue may occasionally be unavailable for maintenance.  Keep this
+     * probe deliberately short: the app can then fall back to its saved catalogue
+     * instead of leaving people on an indefinite loading spinner.
+     */
+    suspend fun catalogLoad(source: String, kind: CatalogKind, limit: Int = 30): CatalogLoad = withContext(Dispatchers.IO) {
+        val payload = runCatching {
+            request(
+                "$WORKER?action=genre&genre=${encode(source)}",
+                attempts = 1,
+                connectTimeoutMs = 4_000,
+                readTimeoutMs = 6_000,
+            )
+        }.getOrNull()
         val data = payload?.optJSONArray("data")
-        if (data == null || data.length() == 0) return@withContext fallbackCatalog(source, kind, limit)
-        return@withContext itemsFromJson(data, kind, limit)
+        val items = data?.let { itemsFromJson(it, kind, limit) }.orEmpty()
+        if (items.isNotEmpty()) saveEmergencyCatalog(kind, items)
+        CatalogLoad(items, items.isNotEmpty())
     }
+
+    suspend fun catalog(source: String, kind: CatalogKind, limit: Int = 30): List<CatalogItem> =
+        catalogLoad(source, kind, limit).items
 
     private fun itemsFromJson(data: org.json.JSONArray, kind: CatalogKind, limit: Int): List<CatalogItem> {
         val seen = HashSet<String>()
@@ -95,16 +123,65 @@ class NativeCatalogRepository {
         }
     }
 
-    suspend fun anime(limit: Int = 30): List<CatalogItem> {
-        val movies = catalog(ANIME_MOVIES, CatalogKind.ANIME, limit)
-        val series = catalog(ANIME_SERIES, CatalogKind.ANIME, limit)
-        return (movies + series).distinctBy { it.href }.take(limit)
+    suspend fun animeLoad(limit: Int = 30): CatalogLoad = coroutineScope {
+        val movies = async { catalogLoad(ANIME_MOVIES, CatalogKind.ANIME, limit) }
+        val series = async { catalogLoad(ANIME_SERIES, CatalogKind.ANIME, limit) }
+        val movieLoad = movies.await()
+        val seriesLoad = series.await()
+        CatalogLoad(
+            (movieLoad.items + seriesLoad.items).distinctBy { it.href }.take(limit),
+            movieLoad.sourceAvailable || seriesLoad.sourceAvailable,
+        )
+    }
+
+    suspend fun anime(limit: Int = 30): List<CatalogItem> = animeLoad(limit).items
+
+    /** Last good catalogue on this device. It is used only when the live source is down. */
+    suspend fun cachedCatalog(kind: CatalogKind, limit: Int = 30): List<CatalogItem> = withContext(Dispatchers.IO) {
+        val raw = emergencyCache.getString("items_${kind.name}", null).orEmpty()
+        val data = runCatching { JSONArray(raw) }.getOrNull() ?: return@withContext emptyList()
+        buildList {
+            val seen = HashSet<String>()
+            for (index in 0 until data.length()) {
+                val value = data.optJSONObject(index) ?: continue
+                val title = value.optString("title").trim()
+                val href = value.optString("href").trim()
+                val image = value.optString("image").trim()
+                if (title.isBlank() || !href.startsWith("https://") || !seen.add(href)) continue
+                add(CatalogItem(title, href, image, kind))
+                if (size >= limit) break
+            }
+        }
+    }
+
+    private fun saveEmergencyCatalog(kind: CatalogKind, values: List<CatalogItem>) {
+        val payload = JSONArray()
+        values.take(60).forEach { item ->
+            if (item.title.isNotBlank() && item.href.startsWith("https://")) {
+                payload.put(JSONObject().put("title", item.title).put("href", item.href).put("image", item.image))
+            }
+        }
+        if (payload.length() > 0) {
+            emergencyCache.edit()
+                .putString("items_${kind.name}", payload.toString())
+                .putLong("saved_${kind.name}", System.currentTimeMillis())
+                .apply()
+        }
     }
 
     suspend fun manualContent(): List<CatalogItem> = withContext(Dispatchers.IO) {
         val data = listOf(MANUAL_API, MANUAL_FALLBACK_API)
             .asSequence()
-            .mapNotNull { endpoint -> runCatching { request("$endpoint?ts=${System.currentTimeMillis()}").optJSONArray("data") }.getOrNull() }
+            .mapNotNull { endpoint ->
+                runCatching {
+                    request(
+                        "$endpoint?ts=${System.currentTimeMillis()}",
+                        attempts = 1,
+                        connectTimeoutMs = 4_000,
+                        readTimeoutMs = 5_000,
+                    ).optJSONArray("data")
+                }.getOrNull()
+            }
             .firstOrNull()
             ?: return@withContext emptyList()
         buildList {
@@ -131,7 +208,7 @@ class NativeCatalogRepository {
     suspend fun categories(source: String): List<SourceCategory> = withContext(Dispatchers.IO) {
         runCatching {
             val base = source.substringBefore('?')
-            val html = fetchPage(base)
+            val html = fetchPage(base, attempts = 1, connectTimeoutMs = 3_500, readTimeoutMs = 4_500)
             Regex("""<option\s+value=[\"'](\d+)[\"'][^>]*>([\s\S]*?)</option>""", RegexOption.IGNORE_CASE)
                 .findAll(html)
                 .map { SourceCategory(it.groupValues[1], plainText(it.groupValues[2]), "$base?category=${it.groupValues[1]}&section=0") }
@@ -144,10 +221,22 @@ class NativeCatalogRepository {
     suspend fun search(query: String, limit: Int = 30): List<CatalogItem> = withContext(Dispatchers.IO) {
         val clean = query.trim()
         if (clean.length < 2) return@withContext emptyList()
-        val payload = runCatching { request("$WORKER?action=search&q=${encode(clean)}&p=1") }.getOrNull()
+        val payload = runCatching {
+            request(
+                "$WORKER?action=search&q=${encode(clean)}&p=1",
+                attempts = 1,
+                connectTimeoutMs = 4_000,
+                readTimeoutMs = 6_000,
+            )
+        }.getOrNull()
         val data = payload?.optJSONArray("data")
         if (data != null && data.length() > 0) return@withContext itemsFromJson(data, CatalogKind.MOVIE, limit)
-        return@withContext fallbackCatalog("https://akwam.it/search?q=${encode(clean)}", CatalogKind.MOVIE, limit)
+        // During a source outage, searching the locally saved titles is much more
+        // useful than retrying the same unavailable upstream page.
+        return@withContext (cachedCatalog(CatalogKind.MOVIE, 60) + cachedCatalog(CatalogKind.SERIES, 60) + cachedCatalog(CatalogKind.ANIME, 60))
+            .filter { it.title.contains(clean, ignoreCase = true) }
+            .distinctBy { it.href }
+            .take(limit)
     }
 
     suspend fun detail(item: CatalogItem): ContentDetail = withContext(Dispatchers.IO) {
@@ -166,9 +255,21 @@ class NativeCatalogRepository {
     }
 
     private fun sourceDetail(item: CatalogItem): ContentDetail {
-        val workerParsed = runCatching {
-            parseDetail(request("$WORKER?action=series&series=${encode(workerUrl(item.href))}"), item.title)
-        }.getOrElse { fallbackDetail(item.href, item.title) }
+        val workerPayload = runCatching {
+            request(
+                "$WORKER?action=series&series=${encode(workerUrl(item.href))}",
+                attempts = 1,
+                connectTimeoutMs = 4_000,
+                readTimeoutMs = 6_000,
+            )
+        }.getOrNull() ?: return ContentDetail(
+            title = item.title,
+            description = "المصدر الأساسي تحت الصيانة حاليًا. أعد المحاولة لاحقًا.",
+            mediaUrl = "",
+            episodes = emptyList(),
+            actors = emptyList(),
+        )
+        val workerParsed = parseDetail(workerPayload, item.title)
         // The source sometimes returns a successful JSON shell with no media or
         // episodes after a backend change. Fall back to parsing the public page
         // instead of showing a broken detail screen.
@@ -181,7 +282,9 @@ class NativeCatalogRepository {
             workerParsed.episodes.isEmpty()
         }
         val parsed = if (needsFallback) {
-            runCatching { fallbackDetail(item.href, item.title) }.getOrDefault(workerParsed)
+            runCatching {
+                fallbackDetail(item.href, item.title, attempts = 1, connectTimeoutMs = 3_500, readTimeoutMs = 4_500)
+            }.getOrDefault(workerParsed)
         } else workerParsed
         val online = onlineResolve(item.href)
         val onlineMedia = online?.optString("media_src").orEmpty()
@@ -200,9 +303,21 @@ class NativeCatalogRepository {
     }
 
     suspend fun episode(link: String, fallbackTitle: String): ContentDetail = withContext(Dispatchers.IO) {
-        val parsed = runCatching {
-            parseDetail(request("$WORKER?action=series&series=${encode(workerUrl(link))}"), fallbackTitle)
-        }.getOrElse { fallbackDetail(link, fallbackTitle) }
+        val workerPayload = runCatching {
+            request(
+                "$WORKER?action=series&series=${encode(workerUrl(link))}",
+                attempts = 1,
+                connectTimeoutMs = 4_000,
+                readTimeoutMs = 6_000,
+            )
+        }.getOrNull() ?: return@withContext ContentDetail(
+            title = fallbackTitle,
+            description = "المصدر الأساسي تحت الصيانة حاليًا. أعد المحاولة لاحقًا.",
+            mediaUrl = "",
+            episodes = emptyList(),
+            actors = emptyList(),
+        )
+        val parsed = parseDetail(workerPayload, fallbackTitle)
         val online = onlineResolve(link)
         val media = online?.optString("media_src").orEmpty()
         val actors = onlineActors(online)
@@ -239,7 +354,12 @@ class NativeCatalogRepository {
         )
     }
 
-    private fun request(url: String): JSONObject {
+    private fun request(
+        url: String,
+        attempts: Int = 3,
+        connectTimeoutMs: Int = 10_000,
+        readTimeoutMs: Int = 18_000,
+    ): JSONObject {
         val now = System.currentTimeMillis()
         synchronized(responseCache) {
             val cached = responseCache[url]
@@ -247,11 +367,11 @@ class NativeCatalogRepository {
             if (cached != null) responseCache.remove(url)
         }
         var lastError: Exception? = null
-        repeat(3) { attempt ->
+        repeat(attempts.coerceAtLeast(1)) { attempt ->
             val connection = URL(url).openConnection() as HttpURLConnection
             try {
-                connection.connectTimeout = 10_000
-                connection.readTimeout = 18_000
+                connection.connectTimeout = connectTimeoutMs
+                connection.readTimeout = readTimeoutMs
                 connection.instanceFollowRedirects = true
                 connection.setRequestProperty("Accept", "application/json")
                 connection.setRequestProperty("Cache-Control", "no-cache")
@@ -267,7 +387,7 @@ class NativeCatalogRepository {
                 return JSONObject(text)
             } catch (error: Exception) {
                 lastError = error
-                if (attempt < 2) Thread.sleep(350L * (attempt + 1))
+                if (attempt < attempts - 1) Thread.sleep(350L * (attempt + 1))
             } finally {
                 connection.disconnect()
             }
@@ -301,8 +421,14 @@ class NativeCatalogRepository {
         }
     }
 
-    private fun fallbackDetail(url: String, fallbackTitle: String): ContentDetail {
-        val html = fetchPage(workerUrl(url))
+    private fun fallbackDetail(
+        url: String,
+        fallbackTitle: String,
+        attempts: Int = 3,
+        connectTimeoutMs: Int = 10_000,
+        readTimeoutMs: Int = 18_000,
+    ): ContentDetail {
+        val html = fetchPage(workerUrl(url), attempts, connectTimeoutMs, readTimeoutMs)
         val title = Regex("""<h1[^>]*>([\s\S]*?)</h1>""", RegexOption.IGNORE_CASE)
             .find(html)?.groupValues?.get(1)?.let(::plainText)?.ifBlank { fallbackTitle } ?: fallbackTitle
         val description = Regex("""<meta[^>]+name=[\"']description[\"'][^>]+content=[\"']([^\"']*)[\"']""", RegexOption.IGNORE_CASE)
@@ -440,13 +566,18 @@ class NativeCatalogRepository {
         val source = Regex("<source[^>]+src\\s*=\\s*[\\\"']([^\\\"']+)[\\\"']", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)).find(watchPage)?.groupValues?.get(1) ?: return@runCatching ""
         secureMediaUrl(source)
     }.getOrDefault("")
-    private fun fetchPage(url: String): String {
+    private fun fetchPage(
+        url: String,
+        attempts: Int = 3,
+        connectTimeoutMs: Int = 10_000,
+        readTimeoutMs: Int = 18_000,
+    ): String {
         var lastError: Exception? = null
-        repeat(3) { attempt ->
+        repeat(attempts.coerceAtLeast(1)) { attempt ->
             val connection = URL(url).openConnection() as HttpURLConnection
             try {
-                connection.connectTimeout = 10_000
-                connection.readTimeout = 18_000
+                connection.connectTimeout = connectTimeoutMs
+                connection.readTimeout = readTimeoutMs
                 connection.instanceFollowRedirects = true
                 connection.setRequestProperty("Accept", "text/html,application/xhtml+xml")
                 connection.setRequestProperty("Cache-Control", "no-cache")
@@ -456,7 +587,7 @@ class NativeCatalogRepository {
                 return connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
             } catch (error: Exception) {
                 lastError = error
-                if (attempt < 2) Thread.sleep(350L * (attempt + 1))
+                if (attempt < attempts - 1) Thread.sleep(350L * (attempt + 1))
             } finally { connection.disconnect() }
         }
         throw lastError ?: IllegalStateException("Empty page")

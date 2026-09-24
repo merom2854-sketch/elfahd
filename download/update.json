@@ -1,6 +1,6 @@
 {
-  "version": "3.8.0",
-  "versionCode": 42,
-  "apkUrl": "https://github.com/merom2854-sketch/elfahd/releases/download/v3.8.0/app-release.apk",
-  "releaseNotes": "مشغّل احترافي: سرعة تشغيل، ترجمات عند توفرها، قفل شاشة، تخطي مقدمة، والحلقة التالية تلقائيًا."
+  "version": "3.8.1",
+  "versionCode": 43,
+  "apkUrl": "https://github.com/merom2854-sketch/elfahd/releases/download/v3.8.1/app-release.apk",
+  "releaseNotes": "وضع طوارئ للمكتبة: كاش محلي، رسالة صيانة واضحة، ومحاولات سريعة بدل شاشة تحميل لا تنتهي."
 }
