@@ -1,0 +1,6 @@
+name = "elfahd-cima-emergency"
+main = "src/index.js"
+compatibility_date = "2025-08-01"
+
+# This worker is a catalogue adapter, not a general-purpose proxy. It only
+# reads the specific, authorised CimaLight catalogue endpoints listed in code.
