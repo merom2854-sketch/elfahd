@@ -68,6 +68,14 @@ class NativeCatalogRepository(context: Context) {
 
     companion object {
         private const val WORKER = "https://akwam-stream-fetcher.meroo3292.workers.dev/"
+        /**
+         * A deliberately narrow emergency catalogue.  It only exposes the public
+         * CimaLight catalogue and page metadata; it is not a general proxy and it
+         * never returns a fabricated direct media URL.
+         */
+        private const val CIMA_EMERGENCY_WORKER = "https://elfahd-cima-emergency.meroo3292.workers.dev/"
+        private const val CIMA_HOST = "e.cimalight.co"
+        const val CIMA_PAGE_SCHEME = "cima-page"
         private const val ONLINE_RESOLVER = "https://elfahd-tv.vercel.app/api/resolve"
         // TMDB credentials stay on Railway. The APK only asks our metadata endpoint
         // for a small, cached list of public cast names and profile images.
@@ -107,6 +115,26 @@ class NativeCatalogRepository(context: Context) {
 
     suspend fun catalog(source: String, kind: CatalogKind, limit: Int = 30): List<CatalogItem> =
         catalogLoad(source, kind, limit).items
+
+    /** Public, approved fallback catalogue used only when the main source is unavailable. */
+    suspend fun emergencyCatalog(kind: CatalogKind, limit: Int = 30): CatalogLoad = withContext(Dispatchers.IO) {
+        val genre = when (kind) {
+            CatalogKind.MOVIE -> "movies"
+            CatalogKind.SERIES -> "series"
+            CatalogKind.ANIME -> "anime"
+        }
+        val payload = runCatching {
+            request(
+                "$CIMA_EMERGENCY_WORKER?action=genre&genre=$genre",
+                attempts = 1,
+                connectTimeoutMs = 4_000,
+                readTimeoutMs = 6_000,
+            )
+        }.getOrNull()
+        val items = payload?.optJSONArray("data")?.let { itemsFromJson(it, kind, limit) }.orEmpty()
+        if (items.isNotEmpty()) saveEmergencyCatalog(kind, items)
+        CatalogLoad(items, items.isNotEmpty())
+    }
 
     private fun itemsFromJson(data: org.json.JSONArray, kind: CatalogKind, limit: Int): List<CatalogItem> {
         val seen = HashSet<String>()
@@ -231,6 +259,16 @@ class NativeCatalogRepository(context: Context) {
         }.getOrNull()
         val data = payload?.optJSONArray("data")
         if (data != null && data.length() > 0) return@withContext itemsFromJson(data, CatalogKind.MOVIE, limit)
+        val emergencyPayload = runCatching {
+            request(
+                "$CIMA_EMERGENCY_WORKER?action=search&q=${encode(clean)}",
+                attempts = 1,
+                connectTimeoutMs = 4_000,
+                readTimeoutMs = 6_000,
+            )
+        }.getOrNull()
+        val emergencyItems = emergencyPayload?.optJSONArray("data")?.let { itemsFromJson(it, CatalogKind.MOVIE, limit) }.orEmpty()
+        if (emergencyItems.isNotEmpty()) return@withContext emergencyItems
         // During a source outage, searching the locally saved titles is much more
         // useful than retrying the same unavailable upstream page.
         return@withContext (cachedCatalog(CatalogKind.MOVIE, 60) + cachedCatalog(CatalogKind.SERIES, 60) + cachedCatalog(CatalogKind.ANIME, 60))
@@ -244,7 +282,9 @@ class NativeCatalogRepository(context: Context) {
         if (managed != null && !managed.extendsSource) {
             return@withContext managedDetail(item, managed)
         }
-        val sourceDetail = if (managed?.extendsSource == true) {
+        val sourceDetail = if (isCimaUrl(item.href)) {
+            cimaDetail(item.href, item.title)
+        } else if (managed?.extendsSource == true) {
             // A manually supplied missing episode must remain usable even if the
             // catalogue happens to be unavailable at this moment.
             runCatching { sourceDetail(item) }.getOrDefault(ContentDetail(item.title, "", "", emptyList(), emptyList()))
@@ -303,6 +343,7 @@ class NativeCatalogRepository(context: Context) {
     }
 
     suspend fun episode(link: String, fallbackTitle: String): ContentDetail = withContext(Dispatchers.IO) {
+        if (isCimaUrl(link)) return@withContext cimaDetail(link, fallbackTitle)
         val workerPayload = runCatching {
             request(
                 "$WORKER?action=series&series=${encode(workerUrl(link))}",
@@ -353,6 +394,41 @@ class NativeCatalogRepository(context: Context) {
             actors = actors,
         )
     }
+
+    /**
+     * CimaLight currently delegates playback from its watch page to another
+     * player host.  Keep that distinction explicit: this generates a private
+     * in-app page target, not a pretend video stream.  NativeHomeActivity opens
+     * this target in the isolated emergency player only after validating it.
+     */
+    private fun cimaDetail(url: String, fallbackTitle: String): ContentDetail {
+        val payload = runCatching {
+            request(
+                "$CIMA_EMERGENCY_WORKER?action=series&series=${encode(url)}",
+                attempts = 1,
+                connectTimeoutMs = 4_000,
+                readTimeoutMs = 6_000,
+            )
+        }.getOrNull() ?: return ContentDetail(
+            title = fallbackTitle,
+            description = "تعذر الوصول إلى مصدر الطوارئ الآن. أعد المحاولة لاحقًا.",
+            mediaUrl = "",
+            episodes = emptyList(),
+            actors = emptyList(),
+        )
+        val parsed = parseDetail(payload, fallbackTitle)
+        val sourcePage = payload.optString("source_page").trim().takeIf(::isCimaUrl) ?: url.takeIf(::isCimaUrl).orEmpty()
+        return parsed.copy(
+            mediaUrl = sourcePage.takeIf { it.isNotBlank() }?.let(::emergencyPageUrl).orEmpty(),
+            fallbackMediaUrl = "",
+        )
+    }
+
+    private fun emergencyPageUrl(url: String): String = "$CIMA_PAGE_SCHEME://watch?url=${encode(url)}"
+    private fun isCimaUrl(value: String): Boolean = runCatching {
+        val parsed = URL(value)
+        parsed.protocol.equals("https", true) && parsed.host.equals(CIMA_HOST, true)
+    }.getOrDefault(false)
 
     private fun request(
         url: String,

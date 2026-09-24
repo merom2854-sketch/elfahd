@@ -165,6 +165,17 @@ class NativeHomeActivity : ComponentActivity() {
 
     private fun play(target: PlaybackTarget) {
         val uri = runCatching { Uri.parse(target.url) }.getOrNull()
+        if (uri?.scheme.equals(NativeCatalogRepository.CIMA_PAGE_SCHEME, true)) {
+            val sourcePage = uri?.getQueryParameter("url").orEmpty()
+            if (!EmergencyWebPlayerActivity.isApprovedSourcePage(sourcePage)) {
+                toast("مصدر الطوارئ غير متاح الآن")
+                return
+            }
+            startActivity(Intent(this, EmergencyWebPlayerActivity::class.java)
+                .putExtra(EmergencyWebPlayerActivity.EXTRA_SOURCE_PAGE, sourcePage)
+                .putExtra(EmergencyWebPlayerActivity.EXTRA_TITLE, target.title))
+            return
+        }
         val trustedHttp = uri?.scheme.equals("http", true) && uri?.host?.lowercase()?.endsWith(".downet.net") == true
         if (!target.url.startsWith("https://") && !trustedHttp) { toast("مصدر المشاهدة غير متاح الآن"); return }
         startActivity(Intent(this, PlayerActivity::class.java)
@@ -179,6 +190,10 @@ class NativeHomeActivity : ComponentActivity() {
     }
 
     private fun download(detail: ContentDetail) {
+        if (detail.mediaUrl.startsWith("${NativeCatalogRepository.CIMA_PAGE_SCHEME}://", ignoreCase = true)) {
+            toast("التحميل غير متاح من مصدر الطوارئ")
+            return
+        }
         if (detail.mediaUrl.isBlank() && detail.fallbackMediaUrl.isBlank()) { toast("رابط التحميل غير متاح الآن"); return }
         if (Build.VERSION.SDK_INT <= 28 && ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
             pendingDownload = detail
@@ -247,6 +262,7 @@ private fun FahdApp(
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf(false) }
     var emergencyMode by remember { mutableStateOf(false) }
+    var emergencySourceAvailable by remember { mutableStateOf(false) }
     var destination by remember { mutableStateOf(FahdDestination.HOME) }
     var selected by remember { mutableStateOf<CatalogItem?>(null) }
     var searchOpen by remember { mutableStateOf(false) }
@@ -266,7 +282,7 @@ private fun FahdApp(
     }
 
     LaunchedEffect(reloadKey) {
-        loading = true; error = false; emergencyMode = false
+        loading = true; error = false; emergencyMode = false; emergencySourceAvailable = false
         // Render the last known good catalogue immediately.  Network refreshes happen
         // in the background, so a maintenance window never becomes an endless loader.
         val cachedMovies = repository.cachedCatalog(CatalogKind.MOVIE)
@@ -293,12 +309,22 @@ private fun FahdApp(
                 val movieLoad = movieTask.await()
                 val seriesLoad = seriesTask.await()
                 val animeLoad = animeTask.await()
-                movies = (manual.filter { it.kind == CatalogKind.MOVIE } + movieLoad.items.ifEmpty { cachedMovies }).distinctBy { it.href }
-                series = (manual.filter { it.kind == CatalogKind.SERIES } + seriesLoad.items.ifEmpty { cachedSeries }).distinctBy { it.href }
-                anime = (manual.filter { it.kind == CatalogKind.ANIME } + animeLoad.items.ifEmpty { cachedAnime }).distinctBy { it.href }
+                // Ask the independent emergency catalogue only for sections that
+                // the primary source could not supply. These requests run in
+                // parallel, keeping a maintenance window short for new users.
+                val emergencyMovieTask = async { if (movieLoad.sourceAvailable) CatalogLoad(emptyList(), false) else repository.emergencyCatalog(CatalogKind.MOVIE) }
+                val emergencySeriesTask = async { if (seriesLoad.sourceAvailable) CatalogLoad(emptyList(), false) else repository.emergencyCatalog(CatalogKind.SERIES) }
+                val emergencyAnimeTask = async { if (animeLoad.sourceAvailable) CatalogLoad(emptyList(), false) else repository.emergencyCatalog(CatalogKind.ANIME) }
+                val emergencyMovies = emergencyMovieTask.await()
+                val emergencySeries = emergencySeriesTask.await()
+                val emergencyAnime = emergencyAnimeTask.await()
+                movies = (manual.filter { it.kind == CatalogKind.MOVIE } + movieLoad.items.ifEmpty { emergencyMovies.items.ifEmpty { cachedMovies } }).distinctBy { it.href }
+                series = (manual.filter { it.kind == CatalogKind.SERIES } + seriesLoad.items.ifEmpty { emergencySeries.items.ifEmpty { cachedSeries } }).distinctBy { it.href }
+                anime = (manual.filter { it.kind == CatalogKind.ANIME } + animeLoad.items.ifEmpty { emergencyAnime.items.ifEmpty { cachedAnime } }).distinctBy { it.href }
                 filteredMovies = movies; filteredSeries = series
                 movieCategories = movieCategoriesTask.await(); seriesCategories = seriesCategoriesTask.await()
                 emergencyMode = !(movieLoad.sourceAvailable || seriesLoad.sourceAvailable || animeLoad.sourceAvailable)
+                emergencySourceAvailable = emergencyMode && (emergencyMovies.sourceAvailable || emergencySeries.sourceAvailable || emergencyAnime.sourceAvailable)
             }
             error = movies.isEmpty() && series.isEmpty()
         } catch (_: Exception) { error = true }
@@ -364,7 +390,7 @@ private fun FahdApp(
                     val title = when (allKind) { CatalogKind.MOVIE -> "وصل حديثًا"; CatalogKind.SERIES -> "مسلسلات مختارة"; CatalogKind.ANIME -> "الأنمي والكرتون"; null -> "عرض الكل" }
                     CatalogGrid(title, content, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding())
                 }
-                destination == FahdDestination.HOME -> HomeScreen(movies, series, anime, resume, loading, error, emergencyMode, onRetry = { reloadKey++ }, onSelect = { selected = it }, onResume = { resume?.let { onPlay(PlaybackTarget(it.url, it.title, it.image)) } }, onViewAll = { allKind = it }, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onTelegram = { onOpenExternal("https://t.me/elfahd_tv") }, contentBottomPadding = padding.calculateBottomPadding())
+                destination == FahdDestination.HOME -> HomeScreen(movies, series, anime, resume, loading, error, emergencyMode, emergencySourceAvailable, onRetry = { reloadKey++ }, onSelect = { selected = it }, onResume = { resume?.let { onPlay(PlaybackTarget(it.url, it.title, it.image)) } }, onViewAll = { allKind = it }, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onTelegram = { onOpenExternal("https://t.me/elfahd_tv") }, contentBottomPadding = padding.calculateBottomPadding())
                 destination == FahdDestination.MOVIES -> CatalogGrid("الأفلام", filteredMovies, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding(), movieCategories, selectedMovieCategory) { chooseCategory(CatalogKind.MOVIE, it) }
                 destination == FahdDestination.SERIES -> CatalogGrid("المسلسلات", filteredSeries, loading, onSearch = { searchOpen = true }, onDownloads = onOpenDownloads, onSettings = onOpenSettings, onSelect = { selected = it }, padding.calculateBottomPadding(), seriesCategories, selectedSeriesCategory) { chooseCategory(CatalogKind.SERIES, it) }
                 destination == FahdDestination.CHANNELS -> ChannelsScreen(onBack = { destination = FahdDestination.HOME }, onOpenLive = onOpenLive, onOpenExternal = onOpenExternal, bottomPadding = padding.calculateBottomPadding())
@@ -383,6 +409,7 @@ private fun HomeScreen(
     loading: Boolean,
     error: Boolean,
     emergencyMode: Boolean,
+    emergencySourceAvailable: Boolean,
     onRetry: () -> Unit,
     onSelect: (CatalogItem) -> Unit,
     onResume: () -> Unit,
@@ -403,7 +430,7 @@ private fun HomeScreen(
         item {
             Hero(featured, featuredIndex, movies.size.coerceAtMost(8), onSelect, onSearch, onDownloads, onSettings)
         }
-        if (emergencyMode) item { EmergencyBanner(onRetry) }
+        if (emergencyMode) item { EmergencyBanner(emergencySourceAvailable, onRetry) }
         if (error) item { ErrorCard(onRetry, emergencyMode) }
         if (loading) item { LoadingBlock() }
         if (!loading) {
@@ -627,9 +654,12 @@ private fun DetailScreen(
         if (failed) item { ErrorCard(onRetry = { loading = true; failed = false; scope.launch { try { detail = repository.detail(item) } catch (_: Exception) { failed = true }; loading = false } }) }
         detail?.let { loaded ->
             item {
+                val emergencyPage = loaded.mediaUrl.startsWith("${NativeCatalogRepository.CIMA_PAGE_SCHEME}://", ignoreCase = true)
+                val canPlay = loaded.mediaUrl.isNotBlank() || loaded.fallbackMediaUrl.isNotBlank()
+                val canDownload = canPlay && !emergencyPage
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = { onRecordHistory(); onPlay(PlaybackTarget(loaded.mediaUrl.ifBlank { loaded.fallbackMediaUrl }, loaded.title, item.image, if (loaded.mediaUrl.isBlank()) "" else loaded.fallbackMediaUrl)) }, enabled = loaded.mediaUrl.isNotBlank() || loaded.fallbackMediaUrl.isNotBlank(), modifier = Modifier.weight(1.25f).height(52.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = FahdColors.Red)) { Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("شاهد الآن", fontWeight = FontWeight.Black) }
-                    OutlinedButton(onClick = { onDownload(loaded) }, enabled = loaded.mediaUrl.isNotBlank() || loaded.fallbackMediaUrl.isNotBlank(), modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.Download, null); Spacer(Modifier.width(6.dp)); Text("تحميل") }
+                    Button(onClick = { onRecordHistory(); onPlay(PlaybackTarget(loaded.mediaUrl.ifBlank { loaded.fallbackMediaUrl }, loaded.title, item.image, if (loaded.mediaUrl.isBlank()) "" else loaded.fallbackMediaUrl)) }, enabled = canPlay, modifier = Modifier.weight(1.25f).height(52.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = FahdColors.Red)) { Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text(if (emergencyPage) "شاهد من المصدر" else "شاهد الآن", fontWeight = FontWeight.Black) }
+                    OutlinedButton(onClick = { onDownload(loaded) }, enabled = canDownload, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.Download, null); Spacer(Modifier.width(6.dp)); Text("تحميل") }
                 }
             }
             if (loaded.actors.isNotEmpty()) item { CastRow(loaded.actors) }
@@ -807,7 +837,7 @@ private fun FahdBottomBar(selected: FahdDestination, onSelect: (FahdDestination)
 private fun LoadingBlock() { Box(Modifier.fillMaxWidth().height(220.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = FahdColors.Red, strokeWidth = 3.dp) } }
 
 @Composable
-private fun EmergencyBanner(onRetry: () -> Unit) {
+private fun EmergencyBanner(emergencySourceAvailable: Boolean, onRetry: () -> Unit) {
     Surface(
         modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp).fillMaxWidth(),
         color = Color(0xFF282012),
@@ -817,7 +847,7 @@ private fun EmergencyBanner(onRetry: () -> Unit) {
             Column(Modifier.weight(1f)) {
                 Text("وضع الطوارئ نشط", color = FahdColors.Gold, fontWeight = FontWeight.Black)
                 Spacer(Modifier.height(4.dp))
-                Text("المصدر الأساسي تحت الصيانة. نعرض آخر مكتبة محفوظة على جهازك.", color = FahdColors.Muted, fontSize = 12.sp)
+                Text(if (emergencySourceAvailable) "المصدر الأساسي تحت الصيانة. نعرض الآن مصدر الطوارئ." else "المصدر الأساسي تحت الصيانة. نعرض آخر مكتبة محفوظة على جهازك.", color = FahdColors.Muted, fontSize = 12.sp)
             }
             OutlinedButton(onClick = onRetry, shape = RoundedCornerShape(10.dp)) { Text("إعادة المحاولة", fontSize = 11.sp) }
         }

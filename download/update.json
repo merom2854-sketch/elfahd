@@ -1,6 +1,6 @@
 {
-  "version": "3.8.1",
-  "versionCode": 43,
-  "apkUrl": "https://github.com/merom2854-sketch/elfahd/releases/download/v3.8.1/app-release.apk",
-  "releaseNotes": "وضع طوارئ للمكتبة: كاش محلي، رسالة صيانة واضحة، ومحاولات سريعة بدل شاشة تحميل لا تنتهي."
+  "version": "3.8.2",
+  "versionCode": 44,
+  "apkUrl": "https://github.com/merom2854-sketch/elfahd/releases/download/v3.8.2/app-release.apk",
+  "releaseNotes": "مصدر طوارئ مستقل للمكتبة، بحث احتياطي، ومشغّل طوارئ أفقي داخل الفهد مع منع النوافذ المنبثقة غير المصرّح بها."
 }

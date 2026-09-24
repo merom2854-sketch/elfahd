@@ -52,6 +52,7 @@
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".LivePlayerActivity" android:exported="false" android:configChanges="orientation|screenSize|smallestScreenSize|uiMode" />
         <activity android:name=".PlayerActivity" android:exported="false" android:configChanges="orientation|screenSize|smallestScreenSize|uiMode" android:supportsPictureInPicture="true" />
+        <activity android:name=".EmergencyWebPlayerActivity" android:exported="false" android:configChanges="orientation|screenSize|smallestScreenSize|uiMode" android:screenOrientation="sensorLandscape" />
         <receiver android:name=".ContentCheckReceiver" android:exported="false" />
         <receiver android:name=".BootReceiver" android:enabled="true" android:exported="true">
             <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter>
